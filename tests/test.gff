@@ -1,0 +1,8 @@
+##gff-version   3
+Chr1	test	CDS	3	10	.	+	.	ID
+Chr1	test	gene	3	10	.	+	.	ID
+Chr1	test	exon	4	7	.	+	.	ID
+Chr2	test	CDS	2	15	.	-	.	ID
+Chr2	test	gene	2	15	.	-	.	ID
+Chr2	test	exon	3	7	.	-	.	ID
+Chr2	test	exon	9	14	.	-	.	ID

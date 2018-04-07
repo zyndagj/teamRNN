@@ -1,0 +1,11 @@
+chr	pos	strand	context	ratio	eff_CT	C	CT
+Chr1	5	-	CHH	0.0	0.0	5	7
+Chr1	6	-	CHH	0.0	0.0	0	0
+Chr1	10	+	CHH	0.0	0.0	4	7
+Chr1	11	+	CHH	0.0	0.0	2	2
+Chr1	12	+	CHH	0.0	0.0	0	7
+Chr2	1	+	CG	0.0	0.0	1	9
+Chr2	2	-	CG	0.0	0.0	1	2
+Chr2	5	+	CG	0.0	0.0	6	7
+Chr2	14	-	CG	0.0	0.0	2	2
+Chr2	15	-	CHG	0.0	0.0	1	5
