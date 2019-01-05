@@ -85,3 +85,39 @@ The sample probability that a site is methylated. This should range [0,1], where
 Since small quantities of reads can skew our methylation ratio, we included the number of reads to provide a confidence measure.
 
 ## Output specification
+
+Batch Output = [batch x sequence_length x input_size]
+
+### Per-base output
+
+| Index | Data type | Description |
+|-------|-----------|-------------|
+
+
+CDS
+RNase_MRP_RNA
+SRP_RNA
+biological_region
+chromosome
+contig
+exon
+five_prime_UTR
+gene
+lnc_RNA
+mRNA
+miRNA
+ncRNA
+ncRNA_gene
+pre_miRNA
+pseudogene
+pseudogenic_transcript
+rRNA
+region
+snRNA
+snoRNA
+supercontig
+tRNA
+three_prime_UTR
+tmRNA
+transposable_element
+transposable_element_gene
