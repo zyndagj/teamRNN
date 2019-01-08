@@ -4,8 +4,6 @@
 
 Batch Input = [batch x sequence_length x input_size]
 
-### Per-base input
-
 | Index | Data type | Description |
 |-------|-----------|-------------|
 | 0 | uint-4 | Numerical mapping from reference base |
@@ -88,36 +86,32 @@ Since small quantities of reads can skew our methylation ratio, we included the 
 
 Batch Output = [batch x sequence_length x input_size]
 
-### Per-base output
-
 | Index | Data type | Description |
 |-------|-----------|-------------|
-
-
-CDS
-RNase_MRP_RNA
-SRP_RNA
-biological_region
-chromosome
-contig
-exon
-five_prime_UTR
-gene
-lnc_RNA
-mRNA
-miRNA
-ncRNA
-ncRNA_gene
-pre_miRNA
-pseudogene
-pseudogenic_transcript
-rRNA
-region
-snRNA
-snoRNA
-supercontig
-tRNA
-three_prime_UTR
-tmRNA
-transposable_element
-transposable_element_gene
+| 0  | [CDS](https://www.vectorbase.org/glossary/cds-coding-sequence) | Coding sequence |
+| 1  | [RNase_MRP_RNA](https://www.vectorbase.org/glossary/rnasemrprna) | The RNA molecule essential for the catalytic activity of RNase MRP |
+| 2  | [SRP_RNA](https://www.vectorbase.org/glossary/srprna) | Signal recognition particle |
+| 3  | [biological_region](http://www.sequenceontology.org/browser/current_svn/term/SO:0001411) | This is a parental feature spanning all other feature annotation on each functional element RefSeq |
+| 4  | chromosome | Signifies that sequence originates from a whole chromosome |
+| 5  | [contig](https://www.vectorbase.org/glossary/contig) | Signifies that the sequence originates from a contiguous region |
+| 6  | [exon](https://www.vectorbase.org/glossary/exon) | Genomic sequences that remains in the mRNA after introns have been spliced out |
+| 7  | [five_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) | Untranslated region from the 5' end of the first codon |
+| 8  | [gene](https://en.wikipedia.org/wiki/Gene) | A sequence of DNA that codes for a molecule that has a function |
+| 9  | [lnc_RNA](https://www.vectorbase.org/glossary/lncrna) | Encodes a long non-coding RNA |
+| 10 | [mRNA](https://en.wikipedia.org/wiki/Messenger_RNA) | Messenger RNA |
+| 11 | [miRNA](https://www.vectorbase.org/glossary/mirna) | MicroRNA |
+| 12 | [ncRNA](https://www.vectorbase.org/glossary/ncrna-non-coding-rna) | Non-coding RNA |
+| 13 | [ncRNA_gene](http://www.sequenceontology.org/miso/current_svn/term/SO:0001263) | Genes that do not encode proteins |
+| 14 | [pre_miRNA](https://www.vectorbase.org/glossary/premirna) | Region that remains after Drosha processing |
+| 15 | [pseudogene](https://www.vectorbase.org/glossary#Pseudogene) | A non-coding sequence similar to an active protein |
+| 16 | [pseudogenic_transcript](http://www.sequenceontology.org/so_wiki/index.php/Category:SO:0000516_!_pseudogenic_transcript) | A non-functional descendant of a transcript |
+| 17 | [rRNA](https://www.vectorbase.org/glossary/rrna) | Ribosomal RNA |
+| 18 | region | Genomic region |
+| 19 | [snRNA](https://www.vectorbase.org/glossary/snrna) | Small nuclear RNA molecule involved in pre-mRNA splicing and processing |
+| 20 | [snoRNA](https://www.vectorbase.org/glossary/snorna) | Small nucleolar RNA |
+| 21 | [supercontig](https://www.vectorbase.org/glossary/supercontigs) | Several sequence contigs combined into scaffolds |
+| 22 | [tRNA](https://www.vectorbase.org/glossary/trna) | Transfer RNA |
+| 23 | [three_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) | Untranslated region from the 3' end of the last codon |
+| 24 | [tmRNA](https://en.wikipedia.org/wiki/Transfer-messenger_RNA) | Transfer messenger RNA |
+| 25 | [transposable_element](https://en.wikipedia.org/wiki/Transposable_element) | A DNA sequence that can change its position in a genome |
+| 26 | [transposable_element_gene](https://rgd.mcw.edu/rgdweb/ontology/view.html?acc_id=SO:0000111&offset=230) | A gene encoded within a transposable element |
