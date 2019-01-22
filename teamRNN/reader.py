@@ -55,7 +55,6 @@ def input_gen(fasta, meth_file, gff3='', seq_len=5):
 				out_row = [base, frac, 0,0, 0,0, 0,0]
 				cI, sI, c, ct, g, ga = meth[i]
 				if cI != -1:
-					print(cur_chrom, cur, seq[i], i, cur+1+i, meth[i])
 					ratio = float(c)/ct
 					reads = ct
 					meth_index = 2+cI*2
