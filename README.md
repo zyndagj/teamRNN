@@ -39,6 +39,7 @@ Batch Input = [batch x sequence_length x input_size]
     <td>-</td>
   </tr><tr>
     <td><b>Numerical Mapping</b></td>
+    <td>0</td>
     <td>1</td>
     <td>2</td>
     <td>3</td>
@@ -54,7 +55,6 @@ Batch Input = [batch x sequence_length x input_size]
     <td>13</td>
     <td>14</td>
     <td>15</td>
-    <td>0</td>
     <td>16</td>
   </tr>
 </table>

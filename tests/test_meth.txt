@@ -1,0 +1,16 @@
+chr	pos	strand	context	ratio	eff_CT_count	C_count	CT_count	rev_G_count	rev_GA_count	CI_lower	CI_upper
+Chr1	10	+	CHH	0.5	20.0	10	20	1	1	0.2	0.2
+Chr1	11	+	CHH	0.6	20.0	12	20	1	1	0.2	0.2
+Chr1	12	+	CHH	0.7	20.0	14	20	1	1	0.2	0.2
+Chr1	13	+	CHH	0.6	20.0	12	20	1	1	0.2	0.2
+Chr1	14	+	CHH	0.5	20.0	10	20	1	1	0.2	0.2
+Chr1	17	-	CHH	0.4	20.0	8	20	1	1	0.2	0.2
+Chr1	18	+	CHH	0.3	20.0	6	20	1	1	0.2	0.2
+Chr2	6	-	CHH	0.4	20.0	8	20	1	1	0.2	0.2
+Chr2	7	-	CHH	0.5	20.0	10	20	1	1	0.2	0.2
+Chr2	8	+	CHG	0.4	20.0	8	20	1	1	0.2	0.2
+Chr2	10	-	CHG	0.3	20.0	6	20	1	1	0.2	0.2
+Chr2	12	-	CHH	0.4	20.0	8	20	1	1	0.2	0.2
+Chr2	15	-	CHH	0.5	20.0	10	20	1	1	0.2	0.2
+Chr2	17	-	CHH	0.6	20.0	12	20	1	1	0.2	0.2
+Chr2	18	+	CHH	0.5	20.0	10	20	1	1	0.2	0.2
