@@ -32,6 +32,9 @@ class refcache:
 		retseq = self.seq[sI:eI]
 		return retseq
 
+gff3_dict = {v:i for i,v in enumerate(['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene'])}
+# TODO make gff3 index
+
 def input_gen(fasta, meth_file, gff3='', seq_len=5):
 	# https://github.com/zyndagj/teamRNN#numerical-mapping-key---016
 	base_dict = {b:i for i,b in enumerate('ACGTURYKMSWBDHVN-')}
@@ -50,14 +53,15 @@ def input_gen(fasta, meth_file, gff3='', seq_len=5):
 			# Transform output
 			out_slice = []
 			for i in range(len(seq)):
+				# get base index
 				base = base_dict[seq[i]]
+				# get location
 				frac = float(cur+1+i)/cur_len
 				out_row = [base, frac, 0,0, 0,0, 0,0]
+				# get methylation info
 				cI, sI, c, ct, g, ga = meth[i]
 				if cI != -1:
-					ratio = float(c)/ct
-					reads = ct
 					meth_index = 2+cI*2
-					out_row[meth_index:meth_index+2] = [ratio, reads]
+					out_row[meth_index:meth_index+2] = [float(c)/ct, ct]
 				out_slice.append(out_row)
 			yield out_slice
