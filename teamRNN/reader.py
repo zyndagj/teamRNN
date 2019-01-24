@@ -4,6 +4,7 @@ from pysam import FastaFile
 from Meth5py import Meth5py
 import subprocess as sp
 import numpy as np
+from quicksect import IntervalTree
 try:
 	# Python 2
 	pass
@@ -32,8 +33,30 @@ class refcache:
 		retseq = self.seq[sI:eI]
 		return retseq
 
-gff3_dict = {v:i for i,v in enumerate(['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene'])}
-# TODO make gff3 index
+gff3_dict = {v:i for i,v in enumerate([s+e for s in ('+','-') for e in['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene']])}
+
+def gff2interval(gff3, chrom_list):
+	#Chr1    TAIR10  transposable_element_gene       433031  433819  .       -       .       ID=AT1G02228;Note=transposable_element_gene;Name=AT1G02228;Derives_from=AT1TE01405
+	itd = {c:IntervalTree() for c in chrom_list}
+	with open(gff3,'r') as IF:
+		for line in filter(lambda x: x[0] != "#", IF):
+			tmp = line.split('\t')
+			chrom = tmp[0]
+			strand = tmp[6]
+			element = tmp[2]
+			element_id = gff3_dict[strand+element]
+			start, end = map(int, tmp[3:5])
+			itd[chrom].add(start-1, end, element_id)
+	return itd
+
+def intervals2features(itd, chrom, start, end):
+	outA = np.zeros((end-start, len(gff3_dict)))
+	for interval in itd[chrom].search(start,end):
+		s = interval.start
+		e = interval.end
+		i = interval.data
+		outA[s:e,i] = 1
+	return outA
 
 def input_gen(fasta, meth_file, gff3='', seq_len=5):
 	# https://github.com/zyndagj/teamRNN#numerical-mapping-key---016
