@@ -81,11 +81,18 @@ class TestReader(unittest.TestCase):
 		tmp[8:14,reader.gff3_dict['-exon']] = 1
 		self.assertTrue(np.array_equal(res2, tmp))
 	def test_input_iter_gff3(self):
-		IG = reader.input_gen(self.fa, self.mr1, gff3=self.gff3, seq_len=5)
-		IL = list(IG)
-		self.assertEqual(IL[0][0], [0, 1.0/20, 0,0,0,0,0,0])
-		self.assertEqual(IL[9][0], [1, 10.0/20, 0,0,0,0,10.0/20,20])
-		self.assertEqual(len(IL), 15+15)
+		XY = reader.input_gen(self.fa, self.mr1, gff3=self.gff3, seq_len=5)
+		XYL = list(XY)
+		self.assertEqual(XYL[0][0][0], [0, 1.0/20, 0,0,0,0,0,0])
+		self.assertEqual(XYL[9][0][0], [1, 10.0/20, 0,0,0,0,10.0/20,20])
+		self.assertEqual(XYL[9][1][0][reader.gff3_dict['+CDS']], 1)
+		self.assertEqual(sum(XYL[0][1][0]), 0)
+		self.assertEqual(sum(XYL[1][1][0]), 0)
+		self.assertEqual(sum(XYL[10][1][0]), 0)
+		self.assertEqual(sum(XYL[11][1][0]), 0)
+		self.assertEqual(sum(XYL[8][1][2]), 0)
+		self.assertEqual(sum(XYL[8][1][1]), 2)
+		self.assertEqual(len(XYL), 15+15)
 
 if __name__ == "__main__":
 	unittest.main()

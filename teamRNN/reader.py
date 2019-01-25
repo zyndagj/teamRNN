@@ -51,10 +51,12 @@ def gff2interval(gff3, chrom_list):
 
 def intervals2features(itd, chrom, start, end):
 	outA = np.zeros((end-start, len(gff3_dict)))
+	#print("Fetching %s:%i-%i"%(chrom, start, end))
 	for interval in itd[chrom].search(start,end):
-		s = interval.start
-		e = interval.end
+		s = max(interval.start, start)-start
+		e = min(interval.end, end)-start
 		i = interval.data
+		#print("Detected %s at %i-%i"%(i,s,e))
 		outA[s:e,i] = 1
 	return outA
 
@@ -65,6 +67,8 @@ def input_gen(fasta, meth_file, gff3='', seq_len=5):
 	strands = ('+', '-')
 	FA = FastaFile(fasta)
 	M5 = Meth5py(meth_file, fasta)
+	if gff3:
+		ITD = gff2interval(gff3, FA.references)
 	for cur_chrom in sorted(FA.references):
 		cur_len = FA.get_reference_length(cur_chrom)
 		cur_rc = refcache(FA, cur_chrom)
@@ -87,4 +91,8 @@ def input_gen(fasta, meth_file, gff3='', seq_len=5):
 					meth_index = 2+cI*2
 					out_row[meth_index:meth_index+2] = [float(c)/ct, ct]
 				out_slice.append(out_row)
-			yield out_slice
+			if gff3:
+				y_array = intervals2features(ITD, cur_chrom, cur, cur+seq_len)
+				yield (out_slice, y_array)
+			else:
+				yield out_slice
