@@ -93,6 +93,11 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(sum(XYL[8][1][2]), 0)
 		self.assertEqual(sum(XYL[8][1][1]), 2)
 		self.assertEqual(len(XYL), 15+15)
+	def test_vote(self):
+		XY = reader.input_gen(self.fa, self.mr1, gff3=self.gff3, seq_len=5)
+		OA = writer.output_aggregator(XY.
+		XYL = list(XY)
+		print(XYL[:][1])
 
 if __name__ == "__main__":
 	unittest.main()
