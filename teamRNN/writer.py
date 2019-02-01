@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 01/27/2019
+# Last Modified: 01/31/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -36,20 +36,22 @@
 ###############################################################################
 
 from operator import itemgetter
+from pysam import FastaFile
+import h5py, os, sys
+import numpy as np
 from teamRNN.util import irange, iterdict
-from teamRNN.constants import gff3_f2i, gff3_i2f
-
-#def main():
+from teamRNN.constants import gff3_f2i, gff3_i2f, strands, contexts
 
 class output_aggregator:
 	'''
-	>>> OA = output_aggregator(chrom_dict, gff3_dict)
+	>>> OA = output_aggregator(chrom_dict)
 	>>> OA.vote(chrom, s, e, out_array)
 	>>> OA.write_gff3()
 	'''
-	def __init__(self, chrom_dict, gff3_dict, h5_file='tmp_vote.h5'):
-		self.gff3_dict = gff3_dict
-		self.chrom_dict = chrom_dict
+	def __init__(self, fasta_file, h5_file='tmp_vote.h5'):
+		self.fasta_file = fasta_file
+		with FastaFile(fasta_file) as FA:
+			self.chrom_dict = {c:FA.get_reference_length(c) for c in FA.references}
 		self.cur_chrom = ''
 		self.h5_file = h5_file
 		self.H5 = h5py.File(h5_file, 'a')
@@ -61,45 +63,43 @@ class output_aggregator:
 	def close(self):
 		self.__del__()
 	def _load_arrays(self, chrom):
-		self.vote_array = H5[chrom+'/votes']
-		self.total_array = H5[chrom+'/totals']
+		self.vote_array = self.H5[chrom+'/votes']
+		self.total_array = self.H5[chrom+'/totals']
+		self.cur_chrom = chrom
 	def _genome_init(self):
-		n_features = len(gff3_dict)
+		n_features = len(gff3_i2f)
 		for chrom, chrom_len in iterdict(self.chrom_dict):
 			self.vote_array = self.H5.create_dataset(chrom+'/votes', \
 				(chrom_len, n_features), compression='gzip', \
-				compression_opts=6, chunks=True, fillvalue=0, dtype='u32')
+				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
 			self.total_array = self.H5.create_dataset(chrom+'/totals', \
 				(chrom_len, 1), compression='gzip', \
-				compression_opts=6, chunks=True, fillvalue=0, dtype='u32')
+				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
 		self.cur_chrom = chrom
 	def vote(self, chrom, start, end, array):
 		if self.cur_chrom != chrom:
 			self._load_arrays(chrom)
-			self.cur_chrom = chrom
 		self.total_array[start:end] += 1
 		if np.sum(array):
-			self.cur_chrom[start:end] += array
-	def write_gff3(self, out_file='', threshold=0.5)
-		# tdict = {index:name, ...}
-		tdict = {v,k for k,v in iterdict(self.gff3_dict)}
+			self.vote_array[start:end] += array
+	def write_gff3(self, out_file='', threshold=0.5):
 		total_feature_count = 0
-		out_gff3 = []
+		out_gff3 = ['##gff-version   3']
 		for chrom, chrom_len in iterdict(self.chrom_dict):
 			features = []
-			se_array = [[0,0] for i in irange(len(self.gff3_dict))]
+			se_array = [[0,0] for i in irange(len(gff3_i2f))]
 			self._load_arrays(chrom)
 			for index in irange(chrom_len):
 				index_votes = self.vote_array[index]
 				index_totals = self.total_array[index]
-				for feat_index in tdict.keys():
+				for feat_index in gff3_i2f.keys():
 					se = se_array[feat_index]
 					if index_votes[feat_index] >= threshold*index_totals:
 						if se[0] == 0:
 							se[0] = index+1
 						else:
 							se[1] = index+1
-						if index == chrom_len-1:
+						if index == chrom_len-1 and se[1]:
 							features.append((se[0],se[1],feat_index))
 							se[0],se[1] = 0,0
 					else:
@@ -108,7 +108,7 @@ class output_aggregator:
 							se[0],se[1] = 0,0
 			features.sort(key=itemgetter(0,1))
 			for s,e,feat_index in features:
-				full_name = tdict[feat_index]
+				full_name = gff3_i2f[feat_index]
 				strand = full_name[0]
 				feature_name = full_name[1:]
 				# think about making the ID more descriptive or hash to a unique value
@@ -116,8 +116,11 @@ class output_aggregator:
 				total_feature_count += 1
 		if out_file:
 			with open(out_file,'w') as OF:
-				OF.write('\n'.join(out_gff3)
-		return out_gff3
+				OF.write('\n'.join(out_gff3))
+		else:
+			return out_gff3
+
+#def main():
 
 #if __name__ == "__main__":
 #	main()

@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 01/27/2019
+# Last Modified: 01/31/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -35,11 +35,17 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
 
-gff3_f2i = {v:i for i,v in enumerate([s+e for s in ('+','-') for e in['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene']])}
-gff3_i2f = {i:v for i,v in enumerate([s+e for s in ('+','-') for e in['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene']])}
-
+# Pulled from all GFF3 files
+features = ['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene']
 contexts = ('CG','CHG','CHH')
 strands = ('+', '-')
+
+gff3_f2i = {v:i for i,v in enumerate([s+e for s in strands for e in features])}
+gff3_i2f = {i:v for i,v in enumerate([s+e for s in strands for e in features])}
+
+# https://github.com/zyndagj/teamRNN#numerical-mapping-key---016
+base_dict = {b:i for i,b in enumerate('ACGTURYKMSWBDHVN-')}
+
 #def main():
 #
 #if __name__ == "__main__":

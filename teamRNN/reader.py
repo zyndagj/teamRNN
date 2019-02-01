@@ -5,72 +5,77 @@ from Meth5py import Meth5py
 import subprocess as sp
 import numpy as np
 from quicksect import IntervalTree
-from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands
+from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base_dict
 from teamRNN.util import irange, iterdict
+from collections import defaultdict as dd
 
 class refcache:
-	def __init__(self, FA, chrom, cacheSize=50000):
-		self.FA = FA
-		self.chrom = chrom
-		self.chromLen = self.FA.get_reference_length(chrom)
-		self.start = 0
+	def __init__(self, fasta_file, cacheSize=5000000):
+		self.fasta_file = fasta_file
+		self.FA = FastaFile(fasta_file)
+		self.chroms = self.FA.references
+		self.chrom_lens = {c:self.FA.get_reference_length(c) for c in self.chroms}
 		self.cacheSize = cacheSize
-		self.end = min(cacheSize, self.chromLen)
-		self.seq = self.FA.fetch(self.chrom, 0, self.end)
-	def fetch(self, pos, pos2):
-		assert(pos >= self.start)
-		if pos2 > self.end:
-			assert(pos2 <= self.chromLen)
-			self.start = pos
-			self.end = pos+self.cacheSize
-			self.seq = self.FA.fetch(self.chrom, self.start, self.end)
-		sI = pos-self.start
-		eI = pos2-self.start
-		retseq = self.seq[sI:eI]
-		return retseq
+		self.start = {c:0 for c in self.chroms}
+		self.end = {c:min(cacheSize, self.chrom_lens[c]) for c in self.chroms}
+		self.chrom_caches = {c:self.FA.fetch(c,0,self.end[c]) for c in self.chroms}
+	def __del__(self):
+		self.FA.close()
+	def fetch(self, chrom, pos, pos2):
+		assert(pos >= self.start[chrom])
+		if pos2 > self.end[chrom]:
+			assert(pos2 <= self.chrom_lens[chrom])
+			self.start[chrom] = pos
+			self.end[chrom] = pos+self.cacheSize
+			self.chrom_caches[chrom] = self.FA.fetch(chrom, self.start, self.end)
+		sI = pos-self.start[chrom]
+		eI = pos2-self.start[chrom]
+		return self.chrom_caches[chrom][sI:eI]
 
-def gff2interval(gff3, chrom_list):
-	#Chr1    TAIR10  transposable_element_gene       433031  433819  .       -       .       ID=AT1G02228;Note=transposable_element_gene;Name=AT1G02228;Derives_from=AT1TE01405
-	itd = {c:IntervalTree() for c in chrom_list}
-	with open(gff3,'r') as IF:
-		for line in filter(lambda x: x[0] != "#", IF):
-			tmp = line.split('\t')
-			chrom = tmp[0]
-			strand = tmp[6]
-			element = tmp[2]
-			element_id = gff3_f2i[strand+element]
-			start, end = map(int, tmp[3:5])
-			itd[chrom].add(start-1, end, element_id)
-	return itd
-
-def intervals2features(itd, chrom, start, end):
-	outA = np.zeros((end-start, len(gff3_f2i)))
-	#print("Fetching %s:%i-%i"%(chrom, start, end))
-	for interval in itd[chrom].search(start,end):
-		s = max(interval.start, start)-start
-		e = min(interval.end, end)-start
-		i = interval.data
-		#print("Detected %s at %i-%i"%(i,s,e))
-		outA[s:e,i] = 1
-	return outA
+class gff3_interval:
+	def __init__(self, gff3):
+		self.gff3 = gff3
+		self._2tree()
+		# creates self.interval_tree
+	def _2tree(self):
+		#Chr1    TAIR10  transposable_element_gene       433031  433819  .       -       .       ID=AT1G02228;Note=transposable_element_gene;Name=AT1G02228;Derives_from=AT1TE01405
+		self.interval_tree = dd(IntervalTree)
+		with open(self.gff3,'r') as IF:
+			for line in filter(lambda x: x[0] != "#", IF):
+				tmp = line.split('\t')
+				chrom, strand, element = tmp[0], tmp[6], tmp[2]
+				element_id = gff3_f2i[strand+element]
+				start, end = map(int, tmp[3:5])
+				self.interval_tree[chrom].add(start-1, end, element_id)
+	def fetch(self, chrom, start, end):
+		outA = np.zeros((end-start, len(gff3_f2i)), dtype=bool)
+		#print("Fetching %s:%i-%i"%(chrom, start, end))
+		for interval in self.interval_tree[chrom].search(start,end):
+			s = max(interval.start, start)-start
+			e = min(interval.end, end)-start
+			i = interval.data
+			#print("Detected %s at %i-%i"%(i,s,e))
+			outA[s:e,i] = 1
+		return outA
 
 class input_slicer:
-	def __init__(self, fasta_file, meth_file, gff3_file='', seq_len=5):
-
-def input_gen(fasta, meth_file, gff3='', seq_len=5):
-	# https://github.com/zyndagj/teamRNN#numerical-mapping-key---016
-	base_dict = {b:i for i,b in enumerate('ACGTURYKMSWBDHVN-')}
-	FA = FastaFile(fasta)
-	M5 = Meth5py(meth_file, fasta)
-	if gff3:
-		ITD = gff2interval(gff3, FA.references)
-	for cur_chrom in sorted(FA.references):
-		cur_len = FA.get_reference_length(cur_chrom)
-		cur_rc = refcache(FA, cur_chrom)
-		for cur in range(cur_len-seq_len):
-			seq = cur_rc.fetch(cur, cur+seq_len)
+	def __init__(self, fasta_file, meth_file, gff3_file=''):
+		self.FA = FastaFile(fasta_file)
+		self.M5 = Meth5py(meth_file, fasta_file)
+		self.gff3_file = gff3_file
+		if gff3_file:
+			self.GI = gff3_interval(gff3_file)
+		self.RC = refcache(fasta_file)
+	def __del__(self):
+		self.FA.close()
+		self.M5.close()
+	def chrom_iter(self, chrom, seq_len=5):
+		chrom_len = self.FA.get_reference_length(chrom)
+		for cur in irange(chrom_len-seq_len):
+			coord = (chrom, cur, cur+seq_len)
+			seq = self.RC.fetch(chrom, cur, cur+seq_len)
 			# [[context_I, strand_I, c, ct, g, ga], ...]
-			meth = M5.fetch(cur_chrom, cur+1, cur+seq_len)
+			meth = self.M5.fetch(chrom, cur+1, cur+seq_len)
 			assert(len(seq) == len(meth))
 			# Transform output
 			out_slice = []
@@ -78,7 +83,7 @@ def input_gen(fasta, meth_file, gff3='', seq_len=5):
 				# get base index
 				base = base_dict[seq[i]]
 				# get location
-				frac = float(cur+1+i)/cur_len
+				frac = float(cur+1+i)/chrom_len
 				out_row = [base, frac, 0,0, 0,0, 0,0]
 				# get methylation info
 				cI, sI, c, ct, g, ga = meth[i]
@@ -86,8 +91,13 @@ def input_gen(fasta, meth_file, gff3='', seq_len=5):
 					meth_index = 2+cI*2
 					out_row[meth_index:meth_index+2] = [float(c)/ct, ct]
 				out_slice.append(out_row)
-			if gff3:
-				y_array = intervals2features(ITD, cur_chrom, cur, cur+seq_len)
-				yield (out_slice, y_array)
+			if self.gff3_file:
+				y_array = self.GI.fetch(chrom, cur, cur+seq_len)
+				yield (coord, out_slice, y_array)
 			else:
-				yield out_slice
+				yield (coord, out_slice)
+		# TODO output location with slice for voting
+	def genome_iter(self, seq_len=5):
+		for chrom in sorted(self.FA.references):
+			for out in self.chrom_iter(chrom, seq_len):
+				yield out
