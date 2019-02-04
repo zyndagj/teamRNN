@@ -33,20 +33,22 @@ class refcache:
 		return self.chrom_caches[chrom][sI:eI]
 
 class gff3_interval:
-	def __init__(self, gff3):
+	def __init__(self, gff3, include_chrom=False):
 		self.gff3 = gff3
-		self._2tree()
+		self._2tree(include_chrom)
 		# creates self.interval_tree
-	def _2tree(self):
+	def _2tree(self, include_chrom=False):
 		#Chr1    TAIR10  transposable_element_gene       433031  433819  .       -       .       ID=AT1G02228;Note=transposable_element_gene;Name=AT1G02228;Derives_from=AT1TE01405
+		exclude = set(['chromosome','contig']) if include_chrom else set([])
 		self.interval_tree = dd(IntervalTree)
 		with open(self.gff3,'r') as IF:
 			for line in filter(lambda x: x[0] != "#", IF):
 				tmp = line.split('\t')
 				chrom, strand, element = tmp[0], tmp[6], tmp[2]
-				element_id = gff3_f2i[strand+element]
-				start, end = map(int, tmp[3:5])
-				self.interval_tree[chrom].add(start-1, end, element_id)
+				if element not in exclude:
+					element_id = gff3_f2i[strand+element]
+					start, end = map(int, tmp[3:5])
+					self.interval_tree[chrom].add(start-1, end, element_id)
 	def fetch(self, chrom, start, end):
 		outA = np.zeros((end-start, len(gff3_f2i)), dtype=bool)
 		#print("Fetching %s:%i-%i"%(chrom, start, end))
