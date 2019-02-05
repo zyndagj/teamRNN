@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 02/03/2019
+# Last Modified: 02/04/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -83,13 +83,13 @@ def main():
 
 class sleight_model:
 	# https://github.com/tensorflow/models/blob/1af55e018eebce03fb61bba9959a04672536107d/research/autoencoder/autoencoder_models/DenoisingAutoencoder.py
-	def __init__(self, name, n_steps=50, n_neurons=100, n_layers=1, \
+	def __init__(self, name, n_inputs=1, n_steps=50, n_outputs=1, n_neurons=100, n_layers=1, \
 		 learning_rate=0.001, training_keep=0.95, dropout=False, \
 		 cell_type='rnn', peep=False, stacked=False, bidirectional=False, \
 		 reg_losses=False, hidden_list=[]):
 		self.name = name # Name of the model
-		self.n_inputs = 1 # Number of input features
-		self.n_outputs = 1 # Number of outputs
+		self.n_inputs = n_inputs # Number of input features
+		self.n_outputs = n_outputs # Number of outputs
 		self.n_steps = n_steps # Size of input sequence
 		self.n_neurons = n_neurons # Number of neurons per RNN cell
 		self.n_layers = n_layers # Number of RNN layers
@@ -105,6 +105,11 @@ class sleight_model:
 		self.bidirectional = bidirectional # each RNN layer is bidirectional
 		self.reg_losses = reg_losses # Regularize losses in addition to normal optimization
 		self.hidden_list = hidden_list # List of hidden layer sizes
+		cell_prefix = 'bi' if bidirectional else ''
+		self.param_name = '%s_i%ix%i_%s%s%ix%i_learn%.3f_p%s_s%s_d%.2f_r%s_h%i'%(name, \
+			self.n_steps, self.n_inputs, cell_prefix, cell_type, n_layers, \
+			n_neurons, learning_rate, str(peep)[0], str(stacked)[0], training_keep, \
+			str(reg_losses)[0], len(hidden_list))
 		self.graph = tf.Graph() # Init graph
 		######################################
 		# Build graph
@@ -175,16 +180,23 @@ class sleight_model:
 			return [cell_func(num_units=self.n_neurons, use_peepholes=True) for i in range(self.n_layers)]
 		else:
 			return [cell_func(num_units=self.n_neurons) for i in range(self.n_layers)]
+	def save(self):
+		with self.graph.as_default():
+			self.saver.save(self.sess, '%s.ckpt'%(self.param_name))
+	def restore(self):
+		with self.graph.as_default():
+			self.saver.restore(self.sess, '%s.ckpt'%(self.param_name))
 	def train(self, x_batch, y_batch):
 		with self.graph.as_default():
-			self.sess.run(self.training_op, feed_dict={self.X:x_batch, self.Y:y_batch, self.keep_p:self.training_keep})
-			mse = self.sess.run(self.loss, feed_dict={self.X:x_batch, self.Y:y_batch, self.keep_p:1.0})
+			opt_ret, mse = self.sess.run([self.training_op, self.loss], \
+				feed_dict={self.X:x_batch, self.Y:y_batch, \
+						self.keep_p:self.training_keep})
 		return mse
-	def predict(self, x_batch, y_batch='', render=True):
+	def predict(self, x_batch, y_batch='', render=False):
 		with self.graph.as_default():
 			# The shape is now probably wrong for this
 			y_pred = np.abs(self.sess.run(self.logits, \
-					feed_dict={self.X:x_batch, self.Y:y_batch, self.keep_p:1.0}).flatten().round(0))
+					feed_dict={self.X:x_batch, self.Y:y_batch, self.keep_p:1.0}).round(0))
 		if render:
 			print("Model: %s"%(self.name))
 			# render results
