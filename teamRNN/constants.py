@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 01/31/2019
+# Last Modified: 02/09/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -44,7 +44,9 @@ gff3_f2i = {v:i for i,v in enumerate([s+e for s in strands for e in features])}
 gff3_i2f = {i:v for i,v in enumerate([s+e for s in strands for e in features])}
 
 # https://github.com/zyndagj/teamRNN#numerical-mapping-key---016
-base_dict = {b:i for i,b in enumerate('ACGTURYKMSWBDHVN-')}
+bases = 'ACGTURYKMSWBDHVN-'
+base2index = {b:i for i,b in enumerate(bases)}
+index2base = bases
 
 #def main():
 #

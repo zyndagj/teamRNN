@@ -5,7 +5,7 @@ from Meth5py import Meth5py
 import subprocess as sp
 import numpy as np
 from quicksect import IntervalTree
-from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base_dict
+from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index
 from teamRNN.util import irange, iterdict
 from collections import defaultdict as dd
 
@@ -73,7 +73,7 @@ class input_slicer:
 		self.M5.close()
 	def chrom_iter(self, chrom, seq_len=5):
 		chrom_len = self.FA.get_reference_length(chrom)
-		for cur in irange(chrom_len-seq_len):
+		for cur in irange(chrom_len-seq_len+1):
 			coord = (chrom, cur, cur+seq_len)
 			seq = self.RC.fetch(chrom, cur, cur+seq_len)
 			# [[context_I, strand_I, c, ct, g, ga], ...]
@@ -83,7 +83,7 @@ class input_slicer:
 			out_slice = []
 			for i in range(len(seq)):
 				# get base index
-				base = base_dict[seq[i]]
+				base = base2index[seq[i]]
 				# get location
 				frac = float(cur+1+i)/chrom_len
 				out_row = [base, frac, 0,0, 0,0, 0,0]
@@ -103,3 +103,27 @@ class input_slicer:
 		for chrom in sorted(self.FA.references):
 			for out in self.chrom_iter(chrom, seq_len):
 				yield out
+	def batch_iter(self, seq_len=5, batch_size=50):
+		c_batch = []
+		x_batch = []
+		y_batch = []
+		for out in self.genome_iter(seq_len):
+			if self.gff3_file:
+				c, x, y = out
+				y_batch.append(y)
+			else:
+				c, x = out
+			c_batch.append(c)
+			x_batch.append(x)
+			if len(c_batch) == batch_size:
+				if self.gff3_file:
+					yield (c_batch, x_batch, y_batch)
+					y_batch = []
+				else:
+					yield(c_batch, x_batch)
+				c_batch, x_batch = [], []
+		if c_batch:
+			if self.gff3_file:
+				yield (c_batch, x_batch, y_batch)
+			else:
+				yield (c_batch, x_batch)

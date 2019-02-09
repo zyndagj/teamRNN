@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 02/04/2019
+# Last Modified: 02/09/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -86,7 +86,7 @@ class sleight_model:
 	def __init__(self, name, n_inputs=1, n_steps=50, n_outputs=1, n_neurons=100, n_layers=1, \
 		 learning_rate=0.001, training_keep=0.95, dropout=False, \
 		 cell_type='rnn', peep=False, stacked=False, bidirectional=False, \
-		 reg_losses=False, hidden_list=[]):
+		 reg_losses=False, hidden_list=[], save_dir='.'):
 		self.name = name # Name of the model
 		self.n_inputs = n_inputs # Number of input features
 		self.n_outputs = n_outputs # Number of outputs
@@ -110,6 +110,11 @@ class sleight_model:
 			self.n_steps, self.n_inputs, cell_prefix, cell_type, n_layers, \
 			n_neurons, learning_rate, str(peep)[0], str(stacked)[0], training_keep, \
 			str(reg_losses)[0], len(hidden_list))
+		if save_dir[0] == '/':
+			self.save_dir = save_dir
+		else:
+			self.save_dir = os.path.join(os.getcwd(), save_dir)
+		self.save_file = os.path.join(self.save_dir, '%s.ckpt'%(self.param_name))
 		self.graph = tf.Graph() # Init graph
 		######################################
 		# Build graph
@@ -182,10 +187,12 @@ class sleight_model:
 			return [cell_func(num_units=self.n_neurons) for i in range(self.n_layers)]
 	def save(self):
 		with self.graph.as_default():
-			self.saver.save(self.sess, '%s.ckpt'%(self.param_name))
+			if not os.path.exists(self.save_dir):
+				os.makedirs(self.save_dir)
+			self.saver.save(self.sess, self.save_file)
 	def restore(self):
 		with self.graph.as_default():
-			self.saver.restore(self.sess, '%s.ckpt'%(self.param_name))
+			self.saver.restore(self.sess, self.save_file)
 	def train(self, x_batch, y_batch):
 		with self.graph.as_default():
 			opt_ret, mse = self.sess.run([self.training_op, self.loss], \
@@ -197,6 +204,7 @@ class sleight_model:
 			# The shape is now probably wrong for this
 			y_pred = np.abs(self.sess.run(self.logits, \
 					feed_dict={self.X:x_batch, self.Y:y_batch, self.keep_p:1.0}).round(0))
+			y_pred = y_pred.astype(bool)
 		if render:
 			print("Model: %s"%(self.name))
 			# render results

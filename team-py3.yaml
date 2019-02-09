@@ -9,6 +9,7 @@ dependencies:
   - matplotlib
   - tensorflow
   - markdown
+  - psutil
   - pyyaml
   - six
   - scikit-learn
