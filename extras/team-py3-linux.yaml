@@ -1,0 +1,27 @@
+name: team-py3
+channels:
+  - base
+dependencies:
+  - python=3*
+  - h5py
+  - numpy
+  - scipy
+  - matplotlib
+  - tensorflow
+  - markdown
+  - psutil
+  - pyyaml
+  - six
+  - scikit-learn
+  - wheel
+  - zlib
+  - xz
+  - twine
+  - gcc_linux-64
+  - gxx_linux-64
+  - gfortran_linux-64
+  - pip:
+    - mkdocs
+    - pydoc-markdown
+    - hmmlearn
+    - pysam==0.13.*
