@@ -326,11 +326,223 @@ plants/hordeum_vulgare:
 	# PRJNA340292	SRR4099519	Hordeum vulgare subsp. vulgare	Hvulgare_bisulfite_repA.4	PAIRED	Bisulfite-Seq
 	$(call fq-dump2,SRR4099519,Hvulgare_bisulfite_repA.4,$@)
 
+plants/lupinus_angustifolius:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://genomebiology.biomedcentral.com/articles/10.1186/s13059-017-1195-1
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA322330
+	# PRJNA322330     SRR3560754      Lupinus angustifolius   SINGLE  Bisulfite-Seq
+	$(call fq-dump1,SRR3560754,SRR3560754,$@)
+	# PRJNA322330     SRR3560755      Lupinus angustifolius   SINGLE  Bisulfite-Seq
+	$(call fq-dump1,SRR3560755,SRR3560755,$@)
+	# PRJNA322330     SRR3560756      Lupinus angustifolius   SINGLE  Bisulfite-Seq
+	$(call fq-dump1,SRR3560756,SRR3560756,$@)
+	# PRJNA322330     SRR3560757      Lupinus angustifolius   SINGLE  Bisulfite-Seq
+	$(call fq-dump1,SRR3560757,SRR3560757,$@)
+	# PRJNA322330     SRR3560758      Lupinus angustifolius   SINGLE  Bisulfite-Seq
+	$(call fq-dump1,SRR3560758,SRR3560758,$@)
+	# PRJNA322330     SRR3560759      Lupinus angustifolius   SINGLE  Bisulfite-Seq
+	$(call fq-dump1,SRR3560759,SRR3560759,$@)
+	# PRJNA322330     SRR3560760      Lupinus angustifolius   SINGLE  Bisulfite-Seq
+	$(call fq-dump1,SRR3560760,SRR3560760,$@)
+	# PRJNA322330     SRR3560761      Lupinus angustifolius   SINGLE  Bisulfite-Seq
+	$(call fq-dump1,SRR3560761,SRR3560761,$@)
+
+plants/manihot_esculenta:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4640745/
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA297491
+	# PRJNA297491     SRR2542438      Manihot esculenta       SINGLE  Bisulfite-Seq   GSM1899953_r1
+	$(call fq-dump1,SRR2542438,GSM1899953_r1,$@)
+	# PRJNA297491     SRR2542439      Manihot esculenta       SINGLE  Bisulfite-Seq   GSM1899953_r2
+	$(call fq-dump1,SRR2542439,GSM1899953_r2,$@)
+	# PRJNA297491     SRR2542440      Manihot esculenta       SINGLE  Bisulfite-Seq   GSM1899953_r3
+	$(call fq-dump1,SRR2542440,GSM1899953_r3,$@)
+	# PRJNA297491     SRR2542441      Manihot esculenta       SINGLE  Bisulfite-Seq   GSM1899953_r4
+	$(call fq-dump1,SRR2542441,GSM1899953_r4,$@)
+	# PRJNA297491     SRR2542442      Manihot esculenta       SINGLE  Bisulfite-Seq   GSM1899954_r1
+	$(call fq-dump1,SRR2542442,GSM1899954_r1,$@)
+	# PRJNA297491     SRR2542443      Manihot esculenta       SINGLE  Bisulfite-Seq   GSM1899955_r1
+	$(call fq-dump1,SRR2542443,GSM1899955_r1,$@)
+
+plants/medicago_truncatula:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5037628/
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA316109
+	# SRR3286295	3880	Medicago truncatula	SINGLE	Bisulfite-Seq	GSM2096978_r1
+	$(call fq-dump1,SRR3286295,GSM2096978_r1,$@)
+	# SRR3286296	3880	Medicago truncatula	SINGLE	Bisulfite-Seq	GSM2096978_r2
+	$(call fq-dump1,SRR3286296,GSM2096978_r2,$@)
+	# SRR3286297	3880	Medicago truncatula	SINGLE	Bisulfite-Seq	GSM2096978_r3
+	$(call fq-dump1,SRR3286297,GSM2096978_r3,$@)
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA472400 (just a subset)
+	# PRJNA472400     SRR7192448      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148697_r1
+	$(call fq-dump1,SRR7192448,GSM3148697_r1,$@)
+	# PRJNA472400     SRR7192449      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148698_r1
+	$(call fq-dump1,SRR7192449,GSM3148698_r1,$@)
+	# PRJNA472400     SRR7192450      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148699_r1
+	$(call fq-dump1,SRR7192450,GSM3148699_r1,$@)
+	# PRJNA472400     SRR7192451      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148700_r1
+	$(call fq-dump1,SRR7192451,GSM3148700_r1,$@)
+	# PRJNA472400     SRR7192452      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148701_r1
+	$(call fq-dump1,SRR7192452,GSM3148701_r1,$@)
+	# PRJNA472400     SRR7192453      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148702_r1
+	$(call fq-dump1,SRR7192453,GSM3148702_r1,$@)
+	# PRJNA472400     SRR7192454      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148703_r1
+	$(call fq-dump1,SRR7192454,GSM3148703_r1,$@)
+	# PRJNA472400     SRR7192455      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148704_r1
+	$(call fq-dump1,SRR7192455,GSM3148704_r1,$@)
+	# PRJNA472400     SRR7192456      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148705_r1
+	$(call fq-dump1,SRR7192456,GSM3148705_r1,$@)
+	# PRJNA472400     SRR7192457      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148706_r1
+	$(call fq-dump1,SRR7192457,GSM3148706_r1,$@)
+	# PRJNA472400     SRR7192458      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148707_r1
+	$(call fq-dump1,SRR7192458,GSM3148707_r1,$@)
+	# PRJNA472400     SRR7192459      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148708_r1
+	$(call fq-dump1,SRR7192459,GSM3148708_r1,$@)
+	# PRJNA472400     SRR7192460      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148709_r1
+	$(call fq-dump1,SRR7192460,GSM3148709_r1,$@)
+	# PRJNA472400     SRR7192461      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148710_r1
+	$(call fq-dump1,SRR7192461,GSM3148710_r1,$@)
+	# PRJNA472400     SRR7192462      Medicago truncatula     SINGLE  Bisulfite-Seq   GSM3148711_r1
+	$(call fq-dump1,SRR7192462,GSM3148711_r1,$@)
+
+plants/musa_acuminata:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.nature.com/articles/s41477-018-0249-z
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA381300
+	# PRJNA381300	SRR6328785	Musa acuminata AAA Group	PAIRED	Bisulfite-Seq	Banana.PH013_Ma_pulb_S4_BS_R1.fq.gz
+	$(call fq-dump2,SRR6328785,Banana.PH013_Ma_pulb_S4_BS,$@)
+	# PRJNA381300	SRR6328788	Musa acuminata AAA Group	PAIRED	Bisulfite-Seq	Banana.PH005_Ma_pulb_S1_BS_R2.fq.gz
+	$(call fq-dump2,SRR6328788,Banana.PH005_Ma_pulb_S1_BS,$@)
+	# PRJNA381300	SRR6328789	Musa acuminata AAA Group	PAIRED	Bisulfite-Seq	Banana.PH013_Ma_leaf_BS4_R1.fq.gz
+	$(call fq-dump2,SRR6328789,Banana.PH013_Ma_leaf_BS4,$@)
+	# PRJNA381300	SRR6328790	Musa acuminata AAA Group	PAIRED	Bisulfite-Seq	Banana.PH005_Ma_pulb_S4_BS_R1.fq.gz
+	$(call fq-dump2,SRR6328790,Banana.PH005_Ma_pulb_S4_BS,$@)
+	# PRJNA381300	SRR6328791	Musa acuminata AAA Group	PAIRED	Bisulfite-Seq	Banana.PH013_Ma_pulb_S1_BS_R1.fq.gz
+	$(call fq-dump2,SRR6328791,Banana.PH013_Ma_pulb_S1_BS,$@)
+	# PRJNA381300	SRR6328804	Musa acuminata AAA Group	PAIRED	Bisulfite-Seq	Banana.PH013_Ma_leaf_BS3_R2.fq.gz
+	$(call fq-dump2,SRR6328804Banana.PH013_Ma_leaf_BS3,$@)
+	# PRJNA381300	SRR6328805	Musa acuminata AAA Group	PAIRED	Bisulfite-Seq	Banana.PH005_Ma_leaf_BS4_R2.fq.gz
+	$(call fq-dump2,SRR6328805,Banana.PH005_Ma_leaf_BS4,$@)
+	# PRJNA381300	SRR6328806	Musa acuminata AAA Group	PAIRED	Bisulfite-Seq	Banana.PH005_Ma_leaf_BS3_R1.fq.gz
+	$(call fq-dump2,SRR6328806,Banana.PH005_Ma_leaf_BS3,$@)
+
+plants/oryza_sativa:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA496509
+	# PRJNA496509     SRR8060862      Oryza sativa    PAIRED  Bisulfite-Seq   GSM3430700_r1
+	$(call fq-dump2,SRR8060862,SRR8060862,$@)
+	# PRJNA496509     SRR8060863      Oryza sativa    PAIRED  Bisulfite-Seq   GSM3430701_r1
+	$(call fq-dump2,SRR8060863,SRR8060863,$@)
+	# https://www.ncbi.nlm.nih.gov/sra?linkname=bioproject_sra_all&from_uid=292165
+	$(call fq-dump2,DRX013571,WT_500_7pM,$@)
+	$(call fq-dump2,DRX013570,WT_350_7pM,$@)
+	$(call fq-dump2,DRX013569,WT_500_5pM,$@)
+	$(call fq-dump2,DRX013568,WT_350_5pM,$@)
+
+plants/ostreococcus_lucimarinus:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3969382/
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA201680
+	# PRJNA201680	SRR847306	Ostreococcus sp. 'lucimarinus'	Illumina HiSeq 2000	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR847306,SRR847306,$@)
+
+plants/phaseolus_vulgaris:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA471093 (subset)
+	#PRJNA471093	SRR7153430	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153430,SRR7153430,$@)
+	#PRJNA471093	SRR7153431	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153431,SRR7153431,$@)
+	#PRJNA471093	SRR7153432	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153432,SRR7153432,$@)
+	#PRJNA471093	SRR7153433	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153433,SRR7153433,$@)
+	#PRJNA471093	SRR7153434	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153434,SRR7153434,$@)
+	#PRJNA471093	SRR7153435	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153435,SRR7153435,$@)
+	#PRJNA471093	SRR7153436	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153436,SRR7153436,$@)
+	#PRJNA471093	SRR7153437	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153437,SRR7153437,$@)
+	#PRJNA471093	SRR7153438	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153438,SRR7153438,$@)
+	#PRJNA471093	SRR7153439	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153439,SRR7153439,$@)
+	#PRJNA471093	SRR7153440	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153440,SRR7153440,$@)
+	#PRJNA471093	SRR7153441	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153441,SRR7153441,$@)
+	#PRJNA471093	SRR7153442	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153442,SRR7153442,$@)
+	#PRJNA471093	SRR7153443	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153443,SRR7153443,$@)
+	#PRJNA471093	SRR7153444	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153444,SRR7153444,$@)
+	#PRJNA471093	SRR7153445	Phaseolus vulgaris	SINGLE	Bisulfite-Seq
+	$(call fq-dump1,SRR7153445,SRR7153445,$@)
+
+plants/physcomitrella_patens:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE118153
+	# PRJNA484724	SRR7647623	Physcomitrella patens	SINGLE	Bisulfite-Seq	WT
+	$(call fq-dump1,SRR7647623,SRR7647623_WT,$@)
+	# http://science.sciencemag.org/content/328/5980/916.long
+	# https://www.ncbi.nlm.nih.gov/bioproject/PRJNA122153
+	# PRJNA122153	SRR042644	Physcomitrella patens	PAIRED	Bisulfite-Seq	Physcomitrella_pattens_BS-Seq
+	$(call fq-dump2,SRR042644,Physcomitrella_pattens_BS-Seq,$@)
+
+plants/populus_trichocarpa:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4118614/
+	# https://www.ncbi.nlm.nih.gov/bioproject/PRJNA238502
+	# PRJNA238502	SRR1171318	Populus trichocarpa	PAIRED	Bisulfite-Seq	well_water_01
+	$(call fq-dump2,SRR1171318,well_water_01,$@)
+	# PRJNA238502	SRR1171319	Populus trichocarpa	PAIRED 	Bisulfite-Seq	well_water_02
+	$(call fq-dump2,SRR1171319,well_water_02,$@)
+	# PRJNA238502	SRR1171316	Populus trichocarpa	PAIRED 	Bisulfite-Seq	water_starved_01
+	$(call fq-dump2,SRR1171316,water_starved_01,$@)
+	# PRJNA238502	SRR1171317	Populus trichocarpa	PAIRED 	Bisulfite-Seq	water_starved_02
+	$(call fq-dump2,SRR1171317,water_starved_02,$@)
+
+plants/prunus_persica:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.nature.com/articles/s41477-018-0249-z
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA381300
+	#PRJNA381300	SRR6328741	Prunus persica	PAIRED	Bisulfite-Seq	Peach.PH097_Peach-19D_R1.fq.gz
+	$(call fq-dump1,SRR6328741,Peach.PH097_Peach-19D,$@)
+	#PRJNA381300	SRR6328742	Prunus persica	PAIRED	Bisulfite-Seq	Peach.PH061_Pp-L-BS_R1.fq.gz
+	$(call fq-dump1,SRR6328742,Peach.PH061_Pp-L-BS,$@)
+	#PRJNA381300	SRR6328749	Prunus persica	PAIRED	Bisulfite-Seq	Peach.PH013_Pp_L_BS_R1.fq.gz
+	$(call fq-dump1,SRR6328749,Peach.PH013_Pp_L_BS,$@)
+	#PRJNA381300	SRR6328830	Prunus persica	PAIRED	Bisulfite-Seq	Peach.PH097_Peach-127D_R1.fq.gz
+	$(call fq-dump1,SRR6328830,Peach.PH097_Peach-127D,$@)
+	#PRJNA381300	SRR6328831	Prunus persica	PAIRED	Bisulfite-Seq	Peach.4_NegCtrl_21_R1.fq.gz
+	$(call fq-dump1,SRR6328831,Peach.4_NegCtrl_21,$@)
+	#PRJNA381300	SRR6328832	Prunus persica	PAIRED	Bisulfite-Seq	Peach.4_NegCtrl_105_R1.fq.gz
+	$(call fq-dump1,SRR6328832,Peach.4_NegCtrl_105,$@)
+
+	
 all: plants/aegilops_tauschii plants/amborella_trichopoda plants/arabidopsis_lyrata \
 	plants/arabidopsis_thaliana plants/beta_vulgaris plants/brachypodium_distachyon \
 	plants/brassica_napus plants/brassica_oleracea plants/brassica_rapa \
 	plants/chlamydomonas_reinhardtii plants/cucumis_sativus plants/cyanidioschyzon_merolae \
 	plants/glycine_max plants/gossypium_raimondii plants/hordeum_vulgare \
+	plants/lupinus_angustifolius plants/manihot_esculenta plants/medicago_truncatula \
+	plants/musa_acuminata plants/oryza_sativa plants/ostreococcus_lucimarinus \
+	plants/phaseolus_vulgaris plants/physcomitrella_patens plants/populus_trichocarpa \
+	plants/prunus_persica
 
 # No methylation
 #arabidopsis_halleri
@@ -340,12 +552,7 @@ all: plants/aegilops_tauschii plants/amborella_trichopoda plants/arabidopsis_lyr
 #dioscorea_rotundata
 #galdieria_sulphuraria
 #helianthus_annuus
-
 #leersia_perrieri
-#lupinus_angustifolius
-#manihot_esculenta
-#medicago_truncatula
-#musa_acuminata
 #nicotiana_attenuata
 #oryza_barthii
 #oryza_brachyantha
@@ -357,12 +564,7 @@ all: plants/aegilops_tauschii plants/amborella_trichopoda plants/arabidopsis_lyr
 #oryza_nivara
 #oryza_punctata
 #oryza_rufipogon
-#oryza_sativa
-#ostreococcus_lucimarinus
-#phaseolus_vulgaris
-#physcomitrella_patens
-#populus_trichocarpa
-#prunus_persica
+
 #selaginella_moellendorffii
 #setaria_italica
 #solanum_lycopersicum
