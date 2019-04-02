@@ -533,7 +533,221 @@ plants/prunus_persica:
 	#PRJNA381300	SRR6328832	Prunus persica	PAIRED	Bisulfite-Seq	Peach.4_NegCtrl_105_R1.fq.gz
 	$(call fq-dump1,SRR6328832,Peach.4_NegCtrl_105,$@)
 
+plants/selaginella_moellendorffii:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# http://science.sciencemag.org/content/328/5980/916.long
+	# https://www.ncbi.nlm.nih.gov/bioproject/PRJNA122153
+	#PRJNA122153	SRR042650	Selaginella moellendorffii	SINGLE	Bisulfite-Seq	GSM497268: Selaginella_moellendorffii_BS-Seq
+	$(call fq-dump1,SRR042650,SRR042650,$@)
+	#PRJNA122153	SRR042651	Selaginella moellendorffii	SINGLE	Bisulfite-Seq	GSM497268: Selaginella_moellendorffii_BS-Seq
+	$(call fq-dump1,SRR042651,SRR042651,$@)
 	
+plants/setaria_italica:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA340292
+	#PRJNA340292	SRR4099343	Setaria italica	Sitalica_bisulfite_repB.4	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099343,Sitalica_bisulfite_repB.4,$@)
+	#PRJNA340292	SRR4099344	Setaria italica	Sitalica_bisulfite_repC.4	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099344,Sitalica_bisulfite_repC.4,$@)
+	#PRJNA340292	SRR4099345	Setaria italica	Sitalica_bisulfite_repA.5	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099345,Sitalica_bisulfite_repA.5,$@)
+	#PRJNA340292	SRR4099346	Setaria italica	Sitalica_bisulfite_repB.5	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099346,Sitalica_bisulfite_repB.5,$@)
+	#PRJNA340292	SRR4099347	Setaria italica	Sitalica_bisulfite_repC.5	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099347,Sitalica_bisulfite_repC.5,$@)
+	#PRJNA340292	SRR4099348	Setaria italica	Sitalica_bisulfite_repA.6	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099348,Sitalica_bisulfite_repA.6,$@)
+	#PRJNA340292	SRR4099349	Setaria italica	Sitalica_bisulfite_repB.6	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099349,Sitalica_bisulfite_repB.6,$@)
+	#PRJNA340292	SRR4099350	Setaria italica	Sitalica_bisulfite_repC.6	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099350,Sitalica_bisulfite_repC.6,$@)
+	#PRJNA340292	SRR4099351	Setaria italica	Sitalica_bisulfite_repA.7	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099351,Sitalica_bisulfite_repA.7,$@)
+	#PRJNA340292	SRR4099352	Setaria italica	Sitalica_bisulfite_repB.7	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099352,Sitalica_bisulfite_repB.7,$@)
+	#PRJNA340292	SRR4099354	Setaria italica	Sitalica_bisulfite_repC.7	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099354,Sitalica_bisulfite_repC.7,$@)
+	#PRJNA340292	SRR4099355	Setaria italica	Sitalica_bisulfite_repA.8	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099355,Sitalica_bisulfite_repA.8,$@)
+	#PRJNA340292	SRR4099356	Setaria italica	Sitalica_bisulfite_repB.8	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099356,Sitalica_bisulfite_repB.8,$@)
+	#PRJNA340292	SRR4099357	Setaria italica	Sitalica_bisulfite_repC.8	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099357,Sitalica_bisulfite_repC.8,$@)
+	#PRJNA340292	SRR4099358	Setaria italica	Sitalica_bisulfite_repA.9	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099358,Sitalica_bisulfite_repA.9,$@)
+	#PRJNA340292	SRR4099359	Setaria italica	Sitalica_bisulfite_repB.9	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099359,Sitalica_bisulfite_repB.9,$@)
+	#PRJNA340292	SRR4099360	Setaria italica	Sitalica_bisulfite_repC.9	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099360,Sitalica_bisulfite_repC.9,$@)
+	#PRJNA340292	SRR4099361	Setaria italica	Sitalica_bisulfite_repA.10	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099361,Sitalica_bisulfite_repA.10,$@)
+	#PRJNA340292	SRR4099362	Setaria italica	Sitalica_bisulfite_repB.10	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099362,Sitalica_bisulfite_repB.10,$@)
+	#PRJNA340292	SRR4099363	Setaria italica	Sitalica_bisulfite_repC.10	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099363,Sitalica_bisulfite_repC.10,$@)
+	#PRJNA340292	SRR4099520	Setaria italica	Sitalica_bisulfite_repA.1	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099520,Sitalica_bisulfite_repA.1,$@)
+	#PRJNA340292	SRR4099521	Setaria italica	Sitalica_bisulfite_repB.1	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099521,Sitalica_bisulfite_repB.1,$@)
+	#PRJNA340292	SRR4099522	Setaria italica	Sitalica_bisulfite_repC.1	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099522,Sitalica_bisulfite_repC.1,$@)
+	#PRJNA340292	SRR4099523	Setaria italica	Sitalica_bisulfite_repA.2	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099523,Sitalica_bisulfite_repA.2,$@)
+	#PRJNA340292	SRR4099524	Setaria italica	Sitalica_bisulfite_repB.2	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099524,Sitalica_bisulfite_repB.2,$@)
+	#PRJNA340292	SRR4099525	Setaria italica	Sitalica_bisulfite_repC.2	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099525,Sitalica_bisulfite_repC.2,$@)
+	#PRJNA340292	SRR4099526	Setaria italica	Sitalica_bisulfite_repA.3	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099526,Sitalica_bisulfite_repA.3,$@)
+	#PRJNA340292	SRR4099547	Setaria italica	Sitalica_bisulfite_repB.3	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099547,Sitalica_bisulfite_repB.3,$@)
+	#PRJNA340292	SRR4099548	Setaria italica	Sitalica_bisulfite_repC.3	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099548,Sitalica_bisulfite_repC.3,$@)
+	#PRJNA340292	SRR4099549	Setaria italica	Sitalica_bisulfite_repA.4	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099549,Sitalica_bisulfite_repA.4,$@)
+
+plants/solanum_lycopersicum:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://onlinelibrary.wiley.com/doi/abs/10.1111/jipb.12778
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA397191
+	# PRJNA397191	SRX3062711	wtR1_BS	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRX3062711,wtR1_BS,$@)
+	# PRJNA397191	SRX3062710	wtR0_BS	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRX3062710,wtR0_BS,$@)
+	# PRJNA397191	SRX3062709	wtO8_BS	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRX3062709,wtO8_BS,$@)
+
+plants/solanum_tuberosum:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://onlinelibrary.wiley.com/doi/full/10.1111/tpj.13790
+	# https://www.ncbi.nlm.nih.gov/bioproject/PRJNA398269
+	#PRJNA398269	SRR5932770	Solanum tuberosum	Potato_D113-J03_good	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR5932770,Potato_D113-J03_good,$@)
+	#PRJNA398269	SRR5932769	Solanum tuberosum	Potato_D113-J02_good	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR5932769,Potato_D113-J02_good,$@)
+	#PRJNA398269	SRR5932768	Solanum tuberosum	Potato_D113-J01_good	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR5932768,Potato_D113-J01_good,$@)
+
+plants/sorghum_bicolor:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://linkinghub.elsevier.com/retrieve/pii/S1674-2052(17)30339-8
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA391551
+	#PRJNA391551	SRR5748817	Sorghum bicolor	SbMC_BS_1.3	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR5748817,SbMC_BS_1.3,$@)
+	#PRJNA391551	SRR5748818	Sorghum bicolor	SbMC_BS_2.1	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR5748818,SbMC_BS_2.1,$@)
+	#PRJNA391551	SRR5748819	Sorghum bicolor	SbMC_BS_1.1	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR5748819,SbMC_BS_1.1,$@)
+	#PRJNA391551	SRR5748820	Sorghum bicolor	SbMC_BS_1.2	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR5748820,SbMC_BS_1.2,$@)
+	#PRJNA391551	SRR5748825	Sorghum bicolor	SbMC_BS_2.2	PAIRED	Bisulfite-Seq
+
+plants/theobroma_cacao:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5037628/
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA316109
+	#PRJNA316109	SRR3286313	Theobroma cacao	SINGLE	Bisulfite-Seq	GSM2096986_r1	
+	$(call fq-dump1,SRR3286313,SRR3286313,$@)
+	#PRJNA316109	SRR3286314	Theobroma cacao	SINGLE	Bisulfite-Seq	GSM2096986_r2	
+	$(call fq-dump1,SRR3286314,SRR3286314,$@)
+
+plants/triticum_aestivum:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/pmid/28449092/
+	# https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE84253
+	$(call fq-dump2,SRR3825299,adult,$@)
+	
+plants/triticum_urartu:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ebi.ac.uk/ena/data/view/PRJNA340292
+	#PRJNA340292	SRR4099365	Triticum urartu	Turartu_bisulfite_repA.1	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099365,Turartu_bisulfite_repA.1,$@)
+	#PRJNA340292	SRR4099366	Triticum urartu	Turartu_bisulfite_repB.1	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099366,Turartu_bisulfite_repB.1,$@)
+	#PRJNA340292	SRR4099367	Triticum urartu	Turartu_bisulfite_repC.1	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099367,Turartu_bisulfite_repC.1,$@)
+	#PRJNA340292	SRR4099368	Triticum urartu	Turartu_bisulfite_repA.2	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099368,Turartu_bisulfite_repA.2,$@)
+	#PRJNA340292	SRR4099369	Triticum urartu	Turartu_bisulfite_repB.2	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099369,Turartu_bisulfite_repB.2,$@)
+	#PRJNA340292	SRR4099379	Triticum urartu	Turartu_bisulfite_repC.2	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099379,Turartu_bisulfite_repC.2,$@)
+	#PRJNA340292	SRR4099391	Triticum urartu	Turartu_bisulfite_repA.3	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099391,Turartu_bisulfite_repA.3,$@)
+	#PRJNA340292	SRR4099392	Triticum urartu	Turartu_bisulfite_repB.3	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099392,Turartu_bisulfite_repB.3,$@)
+	#PRJNA340292	SRR4099393	Triticum urartu	Turartu_bisulfite_repC.3	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099393,Turartu_bisulfite_repC.3,$@)
+	#PRJNA340292	SRR4099394	Triticum urartu	Turartu_bisulfite_repA.4	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099394,Turartu_bisulfite_repA.4,$@)
+	#PRJNA340292	SRR4099396	Triticum urartu	Turartu_bisulfite_repB.4	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099396,Turartu_bisulfite_repB.4,$@)
+	#PRJNA340292	SRR4099397	Triticum urartu	Turartu_bisulfite_repC.4	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099397,Turartu_bisulfite_repC.4,$@)
+	#PRJNA340292	SRR4099398	Triticum urartu	Turartu_bisulfite_repA.5	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099398,Turartu_bisulfite_repA.5,$@)
+	#PRJNA340292	SRR4099399	Triticum urartu	Turartu_bisulfite_repB.5	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099399,Turartu_bisulfite_repB.5,$@)
+	#PRJNA340292	SRR4099400	Triticum urartu	Turartu_bisulfite_repC.5	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099400,Turartu_bisulfite_repC.5,$@)
+	#PRJNA340292	SRR4099401	Triticum urartu	Turartu_bisulfite_repA.6	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099401,Turartu_bisulfite_repA.6,$@)
+	#PRJNA340292	SRR4099402	Triticum urartu	Turartu_bisulfite_repB.6	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099402,Turartu_bisulfite_repB.6,$@)
+	#PRJNA340292	SRR4099403	Triticum urartu	Turartu_bisulfite_repC.6	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099403,Turartu_bisulfite_repC.6,$@)
+	#PRJNA340292	SRR4099404	Triticum urartu	Turartu_bisulfite_repA.7	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099404,Turartu_bisulfite_repA.7,$@)
+	#PRJNA340292	SRR4099405	Triticum urartu	Turartu_bisulfite_repB.7	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099405,Turartu_bisulfite_repB.7,$@)
+	#PRJNA340292	SRR4099407	Triticum urartu	Turartu_bisulfite_repC.7	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099407,Turartu_bisulfite_repC.7,$@)
+	#PRJNA340292	SRR4099408	Triticum urartu	Turartu_bisulfite_repA.8	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099408,Turartu_bisulfite_repA.8,$@)
+	#PRJNA340292	SRR4099409	Triticum urartu	Turartu_bisulfite_repB.8	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099409,Turartu_bisulfite_repB.8,$@)
+	#PRJNA340292	SRR4099410	Triticum urartu	Turartu_bisulfite_repC.8	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099410,Turartu_bisulfite_repC.8,$@)
+	#PRJNA340292	SRR4099411	Triticum urartu	Turartu_bisulfite_repA.9	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099411,Turartu_bisulfite_repA.9,$@)
+	#PRJNA340292	SRR4099412	Triticum urartu	Turartu_bisulfite_repB.9	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099412,Turartu_bisulfite_repB.9,$@)
+	#PRJNA340292	SRR4099413	Triticum urartu	Turartu_bisulfite_repC.9	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099413,Turartu_bisulfite_repC.9,$@)
+	#PRJNA340292	SRR4099414	Triticum urartu	Turartu_bisulfite_repA.10	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099414,Turartu_bisulfite_repA.10,$@)
+	#PRJNA340292	SRR4099415	Triticum urartu	Turartu_bisulfite_repB.10	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099415,Turartu_bisulfite_repB.10,$@)
+	#PRJNA340292	SRR4099416	Triticum urartu	Turartu_bisulfite_repC.10	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR4099416,Turartu_bisulfite_repC.10,$@)
+
+plants/vitis_vinifera:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE77066
+	#PRJNA309385	SRX1539286	Vitis vinifera	X	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRX1539286,X,$@)
+	#PRJNA309385	SRX1539287	Vitis vinifera	Q	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRX1539287,Q,$@)
+	#PRJNA309385	SRX1539288	Vitis vinifera	H	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRX1539288,H,$@)
+
+plants/zea_mays:
+	# Pull reference and annotation
+	$(call pull-ref,$@)
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4311211/
+	# https://www.ncbi.nlm.nih.gov/bioproject/PRJNA202919
+	#PRJNA202919 	SRR850328	Zea mays	B73xMo17	PAIRED	Bisulfite-Seq
+	$(call fq-dump2,SRR850328,B73xMo17,$@)
+
 all: plants/aegilops_tauschii plants/amborella_trichopoda plants/arabidopsis_lyrata \
 	plants/arabidopsis_thaliana plants/beta_vulgaris plants/brachypodium_distachyon \
 	plants/brassica_napus plants/brassica_oleracea plants/brassica_rapa \
@@ -542,7 +756,10 @@ all: plants/aegilops_tauschii plants/amborella_trichopoda plants/arabidopsis_lyr
 	plants/lupinus_angustifolius plants/manihot_esculenta plants/medicago_truncatula \
 	plants/musa_acuminata plants/oryza_sativa plants/ostreococcus_lucimarinus \
 	plants/phaseolus_vulgaris plants/physcomitrella_patens plants/populus_trichocarpa \
-	plants/prunus_persica
+	plants/prunus_persica plants/selaginella_moellendorffii plants/setaria_italica \
+	plants/solanum_lycopersicum plants/solanum_tuberosum plants/sorghum_bicolor \
+	plants/theobroma_cacao plants/triticum_aestivum plants/triticum_urartu \
+	plants/vitis_vinifera plants/zea_mays
 
 # No methylation
 #arabidopsis_halleri
@@ -564,18 +781,7 @@ all: plants/aegilops_tauschii plants/amborella_trichopoda plants/arabidopsis_lyr
 #oryza_nivara
 #oryza_punctata
 #oryza_rufipogon
-
-#selaginella_moellendorffii
-#setaria_italica
-#solanum_lycopersicum
-#solanum_tuberosum
-#sorghum_bicolor
-#theobroma_cacao
 #trifolium_pratense
-#triticum_aestivum
 #triticum_dicoccoides
-#triticum_urartu
 #vigna_angularis
 #vigna_radiata
-#vitis_vinifera
-#zea_mays
