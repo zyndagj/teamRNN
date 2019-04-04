@@ -14,6 +14,8 @@ Batch Input = [batch x sequence_length x input_size]
 | 5 | uint-8 | Number of CHG reads |
 | 6 | float-32 | CHH methylation ratio |
 | 7 | uint-8 | Number of CHH reads |
+| 8 | uint-4 | Ploidy |
+| 9 | uint-4 | Assembly quality |
 
 ### Numerical Mapping Key - [0,16]
 
@@ -81,6 +83,29 @@ The sample probability that a site is methylated. This should range [0,1], where
 ### Number of reads - [0, inf)
 
 Since small quantities of reads can skew our methylation ratio, we included the number of reads to provide a confidence measure.
+
+### Ploidy - [1, 16]
+
+The number of sets of chromosomes for the input species, which needs to be specified at input time.
+
+### Assembly Quality - [0, 3]
+
+This is detected automatically by looking for Ensembl's reference name format
+
+```
+>C1 dna:chromosome chromosome:BOL:C1:1:43764888:1 REF
+```
+
+where the second field is used for quality.
+
+0. Unknown
+1. Contigs
+  - `dna:contig`
+  - `dna:supercontig`
+2. Scaffolds
+  - `dna:scaffold`
+3. Whole chromosomes
+  - `dna:chromosome`
 
 ## Output specification
 

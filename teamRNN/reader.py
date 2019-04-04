@@ -9,11 +9,23 @@ from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index
 from teamRNN.util import irange, iterdict
 from collections import defaultdict as dd
 
+
+known_qualities = dd(int)
+known_qualities.update({'dna:chromosome':3, 'dna:contig':1, 'dna:scaffold':2, 'dna:supercontig':1})
+def _split2quality(split_name):
+	if len(split_name) > 1:
+		lower_name = split_name[1].lower()
+		return known_qualities[lower_name]
+	else:
+		return 0
+
 class refcache:
 	def __init__(self, fasta_file, cacheSize=5000000):
 		self.fasta_file = fasta_file
 		self.FA = FastaFile(fasta_file)
 		self.chroms = self.FA.references
+		self._get_offsets()
+		self.chrom_qualities = {chrom:self.detect_quality(chrom) for chrom in self.chroms}
 		self.chrom_lens = {c:self.FA.get_reference_length(c) for c in self.chroms}
 		self.cacheSize = cacheSize
 		self.start = {c:0 for c in self.chroms}
@@ -21,6 +33,20 @@ class refcache:
 		self.chrom_caches = {c:self.FA.fetch(c,0,self.end[c]) for c in self.chroms}
 	def __del__(self):
 		self.FA.close()
+	def _get_offsets(self):
+		self.chrom_offsets = {}
+		fai = '%s.fai'%(self.fasta_file)
+		with open(fai, 'r') as FAI:
+			for split_line in map(lambda x: x.rstrip('\n').split('\t'), FAI):
+				self.chrom_offsets[split_line[0]] = int(split_line[2])
+	def detect_quality(self, chrom):
+		fasta_name = '>%s'%(chrom)
+		with open(self.fasta_file, 'r') as FA:
+			FA.seek(max(0, self.chrom_offsets[chrom]-200))
+			for line in filter(lambda x: x[0] == '>', FA):
+				split_line = line.rstrip('\n').split(' ')
+				if split_line[0] == fasta_name:
+					return _split2quality(split_line)
 	def fetch(self, chrom, pos, pos2):
 		assert(pos >= self.start[chrom])
 		if pos2 > self.end[chrom]:
@@ -61,18 +87,22 @@ class gff3_interval:
 		return outA
 
 class input_slicer:
-	def __init__(self, fasta_file, meth_file, gff3_file=''):
+	def __init__(self, fasta_file, meth_file, gff3_file='', quality=-1, ploidy=2):
 		self.FA = FastaFile(fasta_file)
 		self.M5 = Meth5py(meth_file, fasta_file)
 		self.gff3_file = gff3_file
 		if gff3_file:
 			self.GI = gff3_interval(gff3_file)
 		self.RC = refcache(fasta_file)
+		self.quality = quality
+		self.ploidy = ploidy
 	def __del__(self):
 		self.FA.close()
 		self.M5.close()
+#>C1 dna:chromosome chromosome:BOL:C1:1:43764888:1 REF
 	def chrom_iter(self, chrom, seq_len=5):
 		chrom_len = self.FA.get_reference_length(chrom)
+		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
 		for cur in irange(chrom_len-seq_len+1):
 			coord = (chrom, cur, cur+seq_len)
 			seq = self.RC.fetch(chrom, cur, cur+seq_len)
@@ -86,7 +116,8 @@ class input_slicer:
 				base = base2index[seq[i]]
 				# get location
 				frac = float(cur+1+i)/chrom_len
-				out_row = [base, frac, 0,0, 0,0, 0,0]
+				#out_row = [base, frac, CGr, nCG, CHGr, nCGH, CHHr, nCHH, Ploidy, Quality]
+				out_row = [base, frac, 0,0, 0,0, 0,0, self.ploidy, chrom_quality]
 				# get methylation info
 				cI, sI, c, ct, g, ga = meth[i]
 				if cI != -1:

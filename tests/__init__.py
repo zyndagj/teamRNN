@@ -42,13 +42,25 @@ class TestReader(unittest.TestCase):
 				self.assertEqual(RC.fetch(chrom, i, i+3), FA.fetch(chrom, i, i+3))
 		# clean up
 		FA.close()
+	def test_split2quality(self):
+		self.assertEqual(reader._split2quality('> dna:chromosome bears'.split(' ')), 3)
+		self.assertEqual(reader._split2quality('> dna:scaffold'.split(' ')), 2)
+		self.assertEqual(reader._split2quality('> dna:supercontig'.split(' ')), 1)
+		self.assertEqual(reader._split2quality('> dna:contig hello there'.split(' ')), 1)
+		self.assertEqual(reader._split2quality('>cats'.split(' ')), 0)
+		self.assertEqual(reader._split2quality('>cats and dogs'.split(' ')), 0)
+	def test_refcache_quality(self):
+		RC = reader.refcache(self.fa)
+		FA = FastaFile(self.fa)
+		for chrom in FA.references:
+			self.assertEqual(RC.chrom_qualities[chrom], 3)
 	def test_input_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		IL = list(I.genome_iter())
 		#for c, x in IL:
 		#	print(''.join(map(lambda i: constants.index2base[i[0]], x)))
-		self.assertEqual(IL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0])
-		self.assertEqual(IL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20])
+		self.assertEqual(IL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3])
+		self.assertEqual(IL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3])
 		self.assertEqual(len(IL), 16+16)
 	def test_input_iter_10(self):
 		I = reader.input_slicer(self.fa, self.mr1)
@@ -87,8 +99,8 @@ class TestReader(unittest.TestCase):
 		I = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		XYL = list(I.genome_iter())
 		self.assertEqual(len(XYL), (20-5+1)*2)
-		self.assertEqual(XYL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0])
-		self.assertEqual(XYL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20])
+		self.assertEqual(XYL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3])
+		self.assertEqual(XYL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3])
 		self.assertEqual(XYL[9][2][0][constants.gff3_f2i['+CDS']], 1)
 		self.assertEqual(sum(XYL[0][2][0]), 0)
 		self.assertEqual(sum(XYL[1][2][0]), 0)
@@ -123,7 +135,7 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(len(BL), 4+4)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
-			self.assertEqual(np.array(out[1]).shape, (4, 5, 8))
+			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
 	def test_batch(self):
@@ -132,7 +144,7 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(len(BL), 4+4)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
-			self.assertEqual(np.array(out[1]).shape, (4, 5, 8))
+			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
 	def test_batch_10(self):
@@ -141,18 +153,18 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(len(BL), np.round(22/11))
 		for out in BL:
 			self.assertEqual(len(out), 2)
-			self.assertEqual(np.array(out[1]).shape, (11, 10, 8))
+			self.assertEqual(np.array(out[1]).shape, (11, 10, 10))
 	def test_batch_uneven(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
 		BL = list(IS.batch_iter(batch_size=5))
 		self.assertEqual(len(BL), 7)
 		for out in BL[:-1]:
 			self.assertEqual(len(out), 2)
-			self.assertEqual(np.array(out[1]).shape, (5, 5, 8))
+			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
 		out = BL[-1]
-		self.assertEqual(np.array(out[1]).shape, (2, 5, 8))
+		self.assertEqual(np.array(out[1]).shape, (2, 5, 10))
 	def test_same_model(self):
-		seq_len, n_inputs, n_outputs = 5, 8, len(constants.gff3_f2i)
+		seq_len, n_inputs, n_outputs = 5, 10, len(constants.gff3_f2i)
 		model.reset_graph()
 		# create models
 		models = []
@@ -170,7 +182,7 @@ class TestReader(unittest.TestCase):
 				mse = [m.train(xb, yb) for m in models]
 				self.assertEqual(mse[0], mse[1])
 	def test_model_effect(self):
-		seq_len, n_inputs, n_outputs = 5, 8, len(constants.gff3_f2i)
+		seq_len, n_inputs, n_outputs = 5, 10, len(constants.gff3_f2i)
 		model.reset_graph()
 		# create models
 		models = [model.sleight_model('d%i'%(i), n_inputs, seq_len, n_outputs) for i in range(2)]
@@ -216,7 +228,7 @@ class TestReader(unittest.TestCase):
 		from random import shuffle, random
 		seq_len = 15
 		batch_size = 6
-		n_inputs, n_outputs = 8, len(constants.gff3_f2i)
+		n_inputs, n_outputs = 10, len(constants.gff3_f2i)
 		model.reset_graph()
 		# create models
 		M = model.sleight_model('default', n_inputs, seq_len, n_outputs, bidirectional=True, save_dir='test_model')
@@ -268,7 +280,7 @@ class TestReader(unittest.TestCase):
 		from random import shuffle, random
 		seq_len = 15
 		batch_size = 6
-		n_inputs, n_outputs = 8, len(constants.gff3_f2i)
+		n_inputs, n_outputs = 10, len(constants.gff3_f2i)
 		model.reset_graph()
 		# create models
 		M = model.sleight_model('default', n_inputs, seq_len, n_outputs, bidirectional=True, save_dir='test_model')
