@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 02/09/2019
+# Last Modified: 04/10/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -42,6 +42,11 @@ strands = ('+', '-')
 
 gff3_f2i = {v:i for i,v in enumerate([s+e for s in strands for e in features])}
 gff3_i2f = {i:v for i,v in enumerate([s+e for s in strands for e in features])}
+
+# Pulled from arabidopsis and repeatmasker
+classes = ['Unassigned', 'DNA', 'DNA?', 'DNA/CMC-EnSpm', 'DNA/En-Spm', 'DNA/HAT', 'DNA/hAT-Ac', 'DNA/hAT-Charlie', 'DNA/hAT-Tag1', 'DNA/hAT-Tip100', 'DNA/Harbinger', 'DNA/Mariner', 'DNA/MuDR', 'DNA/MULE-MuDR', 'DNA/PIF-Harbinger', 'DNA/Pogo', 'DNA/Tc1', 'DNA/TcMar-Mariner', 'DNA/TcMar-Pogo', 'DNA/TcMar-Stowaway', 'LINE/L1', 'LINE?', 'Low_complexity', 'LTR/Cassandra', 'LTR/Caulimovirus', 'LTR/Copia', 'LTR/Gypsy', 'RC/Helitron', 'RC/Helitron?', 'RathE1_cons', 'RathE2_cons', 'RathE3_cons', 'Retroposon', 'Retroposon/L1-dep', 'rRNA', 'Satellite', 'Satellite/centr', 'Simple_repeat', 'SINE', 'SINE/tRNA', 'SINE/tRNA?', 'snRNA', 'tRNA']
+te_cf_f2i = {v.lower():i for i,v in enumerate(classes)}
+te_cf_i2f = {i:v for i,v in enumerate(classes)}
 
 # https://github.com/zyndagj/teamRNN#numerical-mapping-key---016
 bases = 'ACGTURYKMSWBDHVN-'

@@ -87,6 +87,8 @@ def main():
 		out_list = [chrom, 'RepeatMasker', 'transposable_element', start, end, round(p_divergence, 1), strand, '.', attributes]
 		out_str = '\t'.join(map(str, out_list))
 		OF.write(out_str+'\n')
+	OF.close()
+	IF.close()
 
 if __name__ == "__main__":
 	main()

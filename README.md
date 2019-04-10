@@ -19,47 +19,25 @@ Batch Input = [batch x sequence_length x input_size]
 
 ### Numerical Mapping Key - [0,16]
 
-<table>
-  <tr>
-    <td><b>Reference</b></td>
-    <td>A</td>
-    <td>C</td>
-    <td>G</td>
-    <td>T</td>
-    <td>U</td>
-    <td>R</td>
-    <td>Y</td>
-    <td>K</td>
-    <td>M</td>
-    <td>S</td>
-    <td>W</td>
-    <td>B</td>
-    <td>D</td>
-    <td>H</td>
-    <td>V</td>
-    <td>N</td>
-    <td>-</td>
-  </tr><tr>
-    <td><b>Numerical Mapping</b></td>
-    <td>0</td>
-    <td>1</td>
-    <td>2</td>
-    <td>3</td>
-    <td>4</td>
-    <td>5</td>
-    <td>6</td>
-    <td>7</td>
-    <td>8</td>
-    <td>9</td>
-    <td>10</td>
-    <td>11</td>
-    <td>12</td>
-    <td>13</td>
-    <td>14</td>
-    <td>15</td>
-    <td>16</td>
-  </tr>
-</table>
+| Reference | Numerical Mapping |
+|-----------|-------------------|
+| A | 0 |
+| C | 1 |
+| G | 2 |
+| T | 3 |
+| U | 4 |
+| R | 5 |
+| Y | 6 |
+| K | 7 |
+| M | 8 |
+| S | 9 |
+| W | 10 |
+| B | 11 |
+| D | 12 |
+| H | 13 |
+| V | 14 |
+| N | 15 |
+| - | 16 |
 
 Valid characters taken from [FASTA specification](https://en.wikipedia.org/wiki/FASTA_format#Sequence_representation)
 
@@ -113,30 +91,84 @@ Batch Output = [batch x sequence_length x input_size]
 
 | +Index | -Index | Data type | Description |
 |--------|--------|-----------|-------------|
-| 0  | 27 | [CDS](https://www.vectorbase.org/glossary/cds-coding-sequence) | Coding sequence |
-| 1  | 28 | [RNase_MRP_RNA](https://www.vectorbase.org/glossary/rnasemrprna) | The RNA molecule essential for the catalytic activity of RNase MRP |
-| 2  | 29 | [SRP_RNA](https://www.vectorbase.org/glossary/srprna) | Signal recognition particle |
-| 3  | 30 | [biological_region](http://www.sequenceontology.org/browser/current_svn/term/SO:0001411) | This is a parental feature spanning all other feature annotation on each functional element RefSeq |
-| 4  | 31 | chromosome | Signifies that sequence originates from a whole chromosome |
-| 5  | 32 | [contig](https://www.vectorbase.org/glossary/contig) | Signifies that the sequence originates from a contiguous region |
-| 6  | 33 | [exon](https://www.vectorbase.org/glossary/exon) | Genomic sequences that remains in the mRNA after introns have been spliced out |
-| 7  | 34 | [five_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) | Untranslated region from the 5' end of the first codon |
-| 8  | 35 | [gene](https://en.wikipedia.org/wiki/Gene) | A sequence of DNA that codes for a molecule that has a function |
-| 9  | 36 | [lnc_RNA](https://www.vectorbase.org/glossary/lncrna) | Encodes a long non-coding RNA |
-| 10 | 37 | [mRNA](https://en.wikipedia.org/wiki/Messenger_RNA) | Messenger RNA |
-| 11 | 38 | [miRNA](https://www.vectorbase.org/glossary/mirna) | MicroRNA |
-| 12 | 39 | [ncRNA](https://www.vectorbase.org/glossary/ncrna-non-coding-rna) | Non-coding RNA |
-| 13 | 40 | [ncRNA_gene](http://www.sequenceontology.org/miso/current_svn/term/SO:0001263) | Genes that do not encode proteins |
-| 14 | 41 | [pre_miRNA](https://www.vectorbase.org/glossary/premirna) | Region that remains after Drosha processing |
-| 15 | 42 | [pseudogene](https://www.vectorbase.org/glossary#Pseudogene) | A non-coding sequence similar to an active protein |
-| 16 | 43 | [pseudogenic_transcript](http://www.sequenceontology.org/so_wiki/index.php/Category:SO:0000516_!_pseudogenic_transcript) | A non-functional descendant of a transcript |
-| 17 | 44 | [rRNA](https://www.vectorbase.org/glossary/rrna) | Ribosomal RNA |
-| 18 | 45 |region | Genomic region |
-| 19 | 46 | [snRNA](https://www.vectorbase.org/glossary/snrna) | Small nuclear RNA molecule involved in pre-mRNA splicing and processing |
-| 20 | 47 | [snoRNA](https://www.vectorbase.org/glossary/snorna) | Small nucleolar RNA |
-| 21 | 48 | [supercontig](https://www.vectorbase.org/glossary/supercontigs) | Several sequence contigs combined into scaffolds |
-| 22 | 49 | [tRNA](https://www.vectorbase.org/glossary/trna) | Transfer RNA |
-| 23 | 50 | [three_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) | Untranslated region from the 3' end of the last codon |
-| 24 | 51 | [tmRNA](https://en.wikipedia.org/wiki/Transfer-messenger_RNA) | Transfer messenger RNA |
-| 25 | 52 | [transposable_element](https://en.wikipedia.org/wiki/Transposable_element) | A DNA sequence that can change its position in a genome |
-| 26 | 53 | [transposable_element_gene](https://rgd.mcw.edu/rgdweb/ontology/view.html?acc_id=SO:0000111&offset=230) | A gene encoded within a transposable element |
+| 0  | 27 | bool | [CDS](https://www.vectorbase.org/glossary/cds-coding-sequence) - Coding sequence |
+| 1  | 28 | bool | [RNase_MRP_RNA](https://www.vectorbase.org/glossary/rnasemrprna) - The RNA molecule essential for the catalytic activity of RNase MRP |
+| 2  | 29 | bool | [SRP_RNA](https://www.vectorbase.org/glossary/srprna) - Signal recognition particle |
+| 3  | 30 | bool | [biological_region](http://www.sequenceontology.org/browser/current_svn/term/SO:0001411) - This is a parental feature spanning all other feature annotation on each functional element RefSeq |
+| 4  | 31 | bool | chromosome - Signifies that sequence originates from a whole chromosome |
+| 5  | 32 | bool | [contig](https://www.vectorbase.org/glossary/contig) - Signifies that the sequence originates from a contiguous region |
+| 6  | 33 | bool | [exon](https://www.vectorbase.org/glossary/exon) - Genomic sequences that remains in the mRNA after introns have been spliced out |
+| 7  | 34 | bool | [five_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) - Untranslated region from the 5' end of the first codon |
+| 8  | 35 | bool | [gene](https://en.wikipedia.org/wiki/Gene) - A sequence of DNA that codes for a molecule that has a function |
+| 9  | 36 | bool | [lnc_RNA](https://www.vectorbase.org/glossary/lncrna) - Encodes a long non-coding RNA |
+| 10 | 37 | bool | [mRNA](https://en.wikipedia.org/wiki/Messenger_RNA) - Messenger RNA |
+| 11 | 38 | bool | [miRNA](https://www.vectorbase.org/glossary/mirna) - MicroRNA |
+| 12 | 39 | bool | [ncRNA](https://www.vectorbase.org/glossary/ncrna-non-coding-rna) - Non-coding RNA |
+| 13 | 40 | bool | [ncRNA_gene](http://www.sequenceontology.org/miso/current_svn/term/SO:0001263) - Genes that do not encode proteins |
+| 14 | 41 | bool | [pre_miRNA](https://www.vectorbase.org/glossary/premirna) - Region that remains after Drosha processing |
+| 15 | 42 | bool | [pseudogene](https://www.vectorbase.org/glossary#Pseudogene) - A non-coding sequence similar to an active protein |
+| 16 | 43 | bool | [pseudogenic_transcript](http://www.sequenceontology.org/so_wiki/index.php/Category:SO:0000516_!_pseudogenic_transcript) - A non-functional descendant of a transcript |
+| 17 | 44 | bool | [rRNA](https://www.vectorbase.org/glossary/rrna) - Ribosomal RNA |
+| 18 | 45 | bool | region - Genomic region |
+| 19 | 46 | bool | [snRNA](https://www.vectorbase.org/glossary/snrna) - Small nuclear RNA molecule involved in pre-mRNA splicing and processing |
+| 20 | 47 | bool | [snoRNA](https://www.vectorbase.org/glossary/snorna) - Small nucleolar RNA |
+| 21 | 48 | bool | [supercontig](https://www.vectorbase.org/glossary/supercontigs) - Several sequence contigs combined into scaffolds |
+| 22 | 49 | bool | [tRNA](https://www.vectorbase.org/glossary/trna) - Transfer RNA |
+| 23 | 50 | bool | [three_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) - Untranslated region from the 3' end of the last codon |
+| 24 | 51 | bool | [tmRNA](https://en.wikipedia.org/wiki/Transfer-messenger_RNA) - Transfer messenger RNA |
+| 25 | 52 | bool | [transposable_element](https://en.wikipedia.org/wiki/Transposable_element) - A DNA sequence that can change its position in a genome |
+| 26 | 53 | bool | [transposable_element_gene](https://rgd.mcw.edu/rgdweb/ontology/view.html?acc_id=SO:0000111&offset=230) - A gene encoded within a transposable element |
+
+| Index | Data type | Description |
+|-------|-----------|-------------|
+| 54 | uint-8 | transposable_element class/family | 
+
+### TE class/family
+
+Any class/family combinations not recorded in this table will default to `Unassigned`
+
+| Value | Identity |
+|-------|----------|
+| 0  | Unassigned |
+| 1  | DNA |
+| 2  | DNA? |
+| 3  | DNA/CMC-EnSpm |
+| 4  | DNA/En-Spm |
+| 5  | DNA/HAT |
+| 6  | DNA/hAT-Ac |
+| 7  | DNA/hAT-Charlie |
+| 8  | DNA/hAT-Tag1 |
+| 9  | DNA/hAT-Tip100 |
+| 10 | DNA/Harbinger |
+| 11 | DNA/Mariner |
+| 12 | DNA/MuDR |
+| 13 | DNA/MULE-MuDR |
+| 14 | DNA/PIF-Harbinger |
+| 15 | DNA/Pogo |
+| 16 | DNA/Tc1 |
+| 17 | DNA/TcMar-Mariner |
+| 18 | DNA/TcMar-Pogo |
+| 19 | DNA/TcMar-Stowaway |
+| 20 | LINE/L1 |
+| 21 | LINE? |
+| 22 | Low_complexity |
+| 23 | LTR/Cassandra |
+| 24 | LTR/Caulimovirus |
+| 25 | LTR/Copia |
+| 26 | LTR/Gypsy |
+| 27 | RC/Helitron |
+| 28 | RC/Helitron? |
+| 29 | RathE1_cons |
+| 30 | RathE2_cons |
+| 31 | RathE3_cons |
+| 32 | Retroposon |
+| 33 | Retroposon/L1-dep |
+| 34 | rRNA |
+| 35 | Satellite |
+| 36 | Satellite/centr |
+| 37 | Simple_repeat |
+| 38 | SINE |
+| 39 | SINE/tRNA |
+| 40 | SINE/tRNA? |
+| 41 | snRNA |
+| 42 | tRNA |

@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 01/31/2019
+# Last Modified: 04/10/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -40,7 +40,7 @@ from pysam import FastaFile
 import h5py, os, sys
 import numpy as np
 from teamRNN.util import irange, iterdict
-from teamRNN.constants import gff3_f2i, gff3_i2f, strands, contexts
+from teamRNN.constants import gff3_f2i, gff3_i2f, strands, contexts, te_cf_f2i, te_cf_i2f
 
 class output_aggregator:
 	'''
@@ -63,25 +63,45 @@ class output_aggregator:
 	def close(self):
 		self.__del__()
 	def _load_arrays(self, chrom):
-		self.vote_array = self.H5[chrom+'/votes']
-		self.total_array = self.H5[chrom+'/totals']
+		self.feature_vote_array = self.H5[chrom+'/votes/features']
+		#self.feature_total_array = self.H5[chrom+'/totals/features']
+		self.te_vote_array = self.H5[chrom+'/votes/tes']
+		#self.te_total_array = self.H5[chrom+'/totals/tes']
 		self.cur_chrom = chrom
 	def _genome_init(self):
 		n_features = len(gff3_i2f)
+		n_te_ids = len(te_cf_i2f)
 		for chrom, chrom_len in iterdict(self.chrom_dict):
-			self.vote_array = self.H5.create_dataset(chrom+'/votes', \
+			self.feature_vote_array = self.H5.create_dataset(chrom+'/votes/features', \
 				(chrom_len, n_features), compression='gzip', \
 				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
-			self.total_array = self.H5.create_dataset(chrom+'/totals', \
+			self.feature_total_array = self.H5.create_dataset(chrom+'/totals/features', \
 				(chrom_len, 1), compression='gzip', \
 				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
+			self.te_vote_array = self.H5.create_dataset(chrom+'/votes/tes', \
+				(chrom_len, n_te_ids), compression='gzip', \
+				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
+			#self.te_total_array = self.H5.create_dataset(chrom+'/totals/tes', \
+			#	(chrom_len, 1), compression='gzip', \
+			#	compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
 		self.cur_chrom = chrom
 	def vote(self, chrom, start, end, array):
+		# Split the array
+		feature_array = array[:,:len(gff3_i2f)]
+		te_cf_array = array[:,54]
+		# Load the current chromosome arrays
 		if self.cur_chrom != chrom:
 			self._load_arrays(chrom)
-		self.total_array[start:end] += 1
-		if np.sum(array):
-			self.vote_array[start:end] += array
+		# Track features
+		self.feature_total_array[start:end] += 1
+		if np.sum(feature_array):
+			self.feature_vote_array[start:end] += feature_array
+		# Track te class/family
+		if sum(te_cf_array):
+			for i,v in enumerate(te_cf_array):
+				self.te_vote_array[start+i,v] += 1
+			#self.te_total_array[start:end] += 1
+			#self.te_vote_array[start:end,te_cf_array] += 1
 	def write_gff3(self, out_file='', threshold=0.5):
 		total_feature_count = 0
 		out_gff3 = ['##gff-version   3']
@@ -90,8 +110,8 @@ class output_aggregator:
 			se_array = [[0,0] for i in irange(len(gff3_i2f))]
 			self._load_arrays(chrom)
 			for index in irange(chrom_len):
-				index_votes = self.vote_array[index]
-				index_totals = self.total_array[index]
+				index_votes = self.feature_vote_array[index]
+				index_totals = self.feature_total_array[index]
 				for feat_index in gff3_i2f.keys():
 					se = se_array[feat_index]
 					if index_votes[feat_index] >= threshold*index_totals:
@@ -111,8 +131,13 @@ class output_aggregator:
 				full_name = gff3_i2f[feat_index]
 				strand = full_name[0]
 				feature_name = full_name[1:]
-				# think about making the ID more descriptive or hash to a unique value
-				out_gff3.append("%s\tteamRNN\t%s\t%i\t%i\t.\t%s\t.\tID=team_%i"%(chrom, feature_name, s, e, strand, total_feature_count))
+				feature_str = "%s\tteamRNN\t%s\t%i\t%i\t.\t%s\t.\tID=team_%i"%(chrom, feature_name, s, e, strand, total_feature_count)
+				if feature_name in set(('transposable_element', 'transposable_element_gene')):
+					sum_cf_index = np.sum(self.te_vote_array[s-1:e], axis=0)
+					max_cf_index = np.argmax(sum_cf_index)
+					te_cf = te_cf_i2f[max_cf_index]
+					feature_str += ';Class=%s'%(te_cf)
+				out_gff3.append(feature_str)
 				total_feature_count += 1
 		if out_file:
 			with open(out_file,'w') as OF:

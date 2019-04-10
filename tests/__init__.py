@@ -26,6 +26,8 @@ class TestReader(unittest.TestCase):
 		self.fai = os.path.join(tpath, 'test.fa.fai')
 		self.gff3 = os.path.join(tpath, 'test.gff3')
 		self.mr1 = os.path.join(tpath, 'test_meth.txt')
+		self.n_inputs = 10
+		self.n_outputs = len(constants.gff3_f2i)+1
 	def tearDown(self):
 		## Runs after every test function ##
 		# Wipe log
@@ -82,14 +84,17 @@ class TestReader(unittest.TestCase):
 		#Chr2	test	exon	3	7	.	-	.	ID
 		#Chr2	test	exon	9	14	.	-	.	ID
 		GI = reader.gff3_interval(self.gff3)
-		res1 = GI.fetch('Chr1', 0, 5)
-		tmp = np.zeros((5,len(constants.gff3_f2i)))
-		tmp[2:5,constants.gff3_f2i['+CDS']] = 1
-		tmp[2:5,constants.gff3_f2i['+gene']] = 1
-		tmp[3:5,constants.gff3_f2i['+exon']] = 1
+		res1 = GI.fetch('Chr1', 0, 15)
+		tmp = np.zeros((15,len(constants.gff3_f2i)+1), dtype=np.uint8)
+		tmp[2:10,constants.gff3_f2i['+CDS']] = 1
+		tmp[2:10,constants.gff3_f2i['+gene']] = 1
+		tmp[3:7,constants.gff3_f2i['+exon']] = 1
+		tmp[10:15,constants.gff3_f2i['-transposable_element']] = 1
+		tmp[10:15,54] = constants.te_cf_f2i['ltr/gypsy']
+		self.assertEqual(res1.shape, tmp.shape)
 		self.assertTrue(np.array_equal(res1, tmp))
 		res2 = GI.fetch('Chr2', 0, 18)
-		tmp = np.zeros((18,len(constants.gff3_f2i)))
+		tmp = np.zeros((18,len(constants.gff3_f2i)+1))
 		tmp[1:15,constants.gff3_f2i['-CDS']] = 1
 		tmp[1:15,constants.gff3_f2i['-gene']] = 1
 		tmp[2:7,constants.gff3_f2i['-exon']] = 1
@@ -102,11 +107,13 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(XYL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3])
 		self.assertEqual(XYL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3])
 		self.assertEqual(XYL[9][2][0][constants.gff3_f2i['+CDS']], 1)
+		for i in range(10, 15):
+			self.assertEqual(XYL[i][2][0][constants.gff3_f2i['-transposable_element']], 1)
+			self.assertEqual(XYL[i][2][0][54], 26)
 		self.assertEqual(sum(XYL[0][2][0]), 0)
 		self.assertEqual(sum(XYL[1][2][0]), 0)
-		self.assertEqual(sum(XYL[10][2][0]), 0)
-		self.assertEqual(sum(XYL[11][2][0]), 0)
-		self.assertEqual(sum(XYL[8][2][2]), 0)
+		self.assertEqual(sum(XYL[16][2][0]), 0)
+		self.assertEqual(sum(XYL[8][2][2]), 27)
 		self.assertEqual(sum(XYL[8][2][1]), 2)
 		self.assertEqual(len(XYL), 16+16)
 	def test_vote(self):
@@ -122,9 +129,9 @@ class TestReader(unittest.TestCase):
 		with open(self.gff3,'r') as GFF3:
 			for ol, fl in zip(out_lines, GFF3.readlines()):
 				if ol[0] != '#':
-					ols = ol.split('\t')[:7]
+					ols = ol.split('\t')[:9]
 					ols[1] = 'test'
-					fls = fl.split('\t')[:7]
+					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
 		#print('\n'.join(OA.write_gff3()))
 	def test_batch_gff3(self):
@@ -137,7 +144,7 @@ class TestReader(unittest.TestCase):
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
 			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
 			if IS.gff3_file:
-				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
+				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)+1))
 	def test_batch(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
 		BL = list(IS.batch_iter(batch_size=4))
@@ -164,13 +171,13 @@ class TestReader(unittest.TestCase):
 		out = BL[-1]
 		self.assertEqual(np.array(out[1]).shape, (2, 5, 10))
 	def test_same_model(self):
-		seq_len, n_inputs, n_outputs = 5, 10, len(constants.gff3_f2i)
+		seq_len = 5
 		model.reset_graph()
 		# create models
 		models = []
 		for i in range(2):
 			name = 'model_%i'%(i)
-			m = model.sleight_model(name, n_inputs, seq_len, n_outputs, \
+			m = model.sleight_model(name, self.n_inputs, seq_len, self.n_outputs, \
 				n_neurons=20, n_layers=1, learning_rate=0.001, training_keep=0.95, \
 				dropout=False, cell_type='rnn', peep=False, stacked=False, \
 				bidirectional=False, reg_losses=False, hidden_list=[])
@@ -182,22 +189,22 @@ class TestReader(unittest.TestCase):
 				mse = [m.train(xb, yb) for m in models]
 				self.assertEqual(mse[0], mse[1])
 	def test_model_effect(self):
-		seq_len, n_inputs, n_outputs = 5, 10, len(constants.gff3_f2i)
+		seq_len = 5
 		model.reset_graph()
 		# create models
-		models = [model.sleight_model('d%i'%(i), n_inputs, seq_len, n_outputs) for i in range(2)]
-		models.append(model.sleight_model('neurons', n_inputs, seq_len, n_outputs, n_neurons=50))
-		models.append(model.sleight_model('layers', n_inputs, seq_len, n_outputs, n_layers=2))
-		models.append(model.sleight_model('learning', n_inputs, seq_len, n_outputs, learning_rate=0.01))
-		models.append(model.sleight_model('dropout', n_inputs, seq_len, n_outputs, training_keep=0.9, dropout=True))
-		models.append(model.sleight_model('lstm', n_inputs, seq_len, n_outputs, cell_type='lstm'))
-		models.append(model.sleight_model('lstm_peep', n_inputs, seq_len, n_outputs, cell_type='lstm', peep=True))
-		models.append(model.sleight_model('peep', n_inputs, seq_len, n_outputs, peep=True))
-		models.append(model.sleight_model('stacked', n_inputs, seq_len, n_outputs, stacked=True))
-		models.append(model.sleight_model('bidirectional', n_inputs, seq_len, n_outputs, bidirectional=True))
-		models.append(model.sleight_model('reg_losses', n_inputs, seq_len, n_outputs, reg_losses=True))
-		models.append(model.sleight_model('reg_losses_stacked', n_inputs, seq_len, n_outputs, stacked=True, reg_losses=True))
-		models.append(model.sleight_model('hidden', n_inputs, seq_len, n_outputs, hidden_list=[10]))
+		models = [model.sleight_model('d%i'%(i), self.n_inputs, seq_len, self.n_outputs) for i in range(2)]
+		models.append(model.sleight_model('neurons', self.n_inputs, seq_len, self.n_outputs, n_neurons=50))
+		models.append(model.sleight_model('layers', self.n_inputs, seq_len, self.n_outputs, n_layers=2))
+		models.append(model.sleight_model('learning', self.n_inputs, seq_len, self.n_outputs, learning_rate=0.01))
+		models.append(model.sleight_model('dropout', self.n_inputs, seq_len, self.n_outputs, training_keep=0.9, dropout=True))
+		models.append(model.sleight_model('lstm', self.n_inputs, seq_len, self.n_outputs, cell_type='lstm'))
+		models.append(model.sleight_model('lstm_peep', self.n_inputs, seq_len, self.n_outputs, cell_type='lstm', peep=True))
+		models.append(model.sleight_model('peep', self.n_inputs, seq_len, self.n_outputs, peep=True))
+		models.append(model.sleight_model('stacked', self.n_inputs, seq_len, self.n_outputs, stacked=True))
+		models.append(model.sleight_model('bidirectional', self.n_inputs, seq_len, self.n_outputs, bidirectional=True))
+		models.append(model.sleight_model('reg_losses', self.n_inputs, seq_len, self.n_outputs, reg_losses=True))
+		models.append(model.sleight_model('reg_losses_stacked', self.n_inputs, seq_len, self.n_outputs, stacked=True, reg_losses=True))
+		models.append(model.sleight_model('hidden', self.n_inputs, seq_len, self.n_outputs, hidden_list=[10]))
 		# train models
 		first = True
 		for epoch in range(3):
@@ -228,15 +235,14 @@ class TestReader(unittest.TestCase):
 		from random import shuffle, random
 		seq_len = 15
 		batch_size = 6
-		n_inputs, n_outputs = 10, len(constants.gff3_f2i)
 		model.reset_graph()
 		# create models
-		M = model.sleight_model('default', n_inputs, seq_len, n_outputs, bidirectional=True, save_dir='test_model')
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, bidirectional=True, save_dir='test_model')
 		# train models
 		ts = time()
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		ISBL = list(IS.batch_iter(seq_len, batch_size))
-		for epoch in range(1,1001):
+		for epoch in range(1,2001):
 			for cb, xb, yb in ISBL:
 				# shuffle indices
 				self.assertEqual(len(xb), batch_size)
@@ -272,18 +278,17 @@ class TestReader(unittest.TestCase):
 		with open(self.gff3,'r') as GFF3:
 			for ol, fl in zip(out_lines, GFF3.readlines()):
 				if ol[0] != '#':
-					ols = ol.split('\t')[:7]
+					ols = ol.split('\t')[:9]
 					ols[1] = 'test'
-					fls = fl.split('\t')[:7]
+					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
-	def test_train_02(self):
+	def test_train_02_restore(self):
 		from random import shuffle, random
 		seq_len = 15
 		batch_size = 6
-		n_inputs, n_outputs = 10, len(constants.gff3_f2i)
 		model.reset_graph()
 		# create models
-		M = model.sleight_model('default', n_inputs, seq_len, n_outputs, bidirectional=True, save_dir='test_model')
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, bidirectional=True, save_dir='test_model')
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		M.restore()
 		# Vote
@@ -308,9 +313,9 @@ class TestReader(unittest.TestCase):
 		with open(self.gff3,'r') as GFF3:
 			for ol, fl in zip(out_lines, GFF3.readlines()):
 				if ol[0] != '#':
-					ols = ol.split('\t')[:7]
+					ols = ol.split('\t')[:9]
 					ols[1] = 'test'
-					fls = fl.split('\t')[:7]
+					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
 		if os.path.exists(M.save_dir):
 			from shutil import rmtree
