@@ -121,54 +121,71 @@ Batch Output = [batch x sequence_length x input_size]
 
 | Index | Data type | Description |
 |-------|-----------|-------------|
-| 54 | uint-8 | transposable_element class/family | 
+| 54 | uint-8 | transposable_element Order |
+| 55 | uint-8 | transposable_element Superfamily |
 
-### TE class/family
+Mapping rules for *A. thaliana*:
 
-Any class/family combinations not recorded in this table will default to `Unassigned`
+- DNA? -> DNA
+- LINE? -> LINE
+- RathE{1,2,3}\_cons -> SINE/RathE{1,2,3}
 
-| Value | Identity |
-|-------|----------|
-| 0  | Unassigned |
-| 1  | DNA |
-| 2  | DNA? |
-| 3  | DNA/CMC-EnSpm |
-| 4  | DNA/En-Spm |
-| 5  | DNA/HAT |
-| 6  | DNA/hAT-Ac |
-| 7  | DNA/hAT-Charlie |
-| 8  | DNA/hAT-Tag1 |
-| 9  | DNA/hAT-Tip100 |
-| 10 | DNA/Harbinger |
-| 11 | DNA/Mariner |
-| 12 | DNA/MuDR |
-| 13 | DNA/MULE-MuDR |
-| 14 | DNA/PIF-Harbinger |
-| 15 | DNA/Pogo |
-| 16 | DNA/Tc1 |
-| 17 | DNA/TcMar-Mariner |
-| 18 | DNA/TcMar-Pogo |
-| 19 | DNA/TcMar-Stowaway |
-| 20 | LINE/L1 |
-| 21 | LINE? |
-| 22 | Low_complexity |
-| 23 | LTR/Cassandra |
-| 24 | LTR/Caulimovirus |
-| 25 | LTR/Copia |
-| 26 | LTR/Gypsy |
-| 27 | RC/Helitron |
-| 28 | RC/Helitron? |
-| 29 | RathE1_cons |
-| 30 | RathE2_cons |
-| 31 | RathE3_cons |
-| 32 | Retroposon |
-| 33 | Retroposon/L1-dep |
-| 34 | rRNA |
-| 35 | Satellite |
-| 36 | Satellite/centr |
-| 37 | Simple_repeat |
-| 38 | SINE |
-| 39 | SINE/tRNA |
-| 40 | SINE/tRNA? |
-| 41 | snRNA |
-| 42 | tRNA |
+Mapping rules for *Z. mays*:
+
+- solo_LTR -> LTR/solo
+- RC/Helitron? -> RC/Helitron
+
+### TE Order
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0	| Unassigned | Order was not specified or is unknown |
+| 1	| [DNA](https://en.wikipedia.org/wiki/Transposable_element#DNA_transposons) | Dna transposon |
+| 2	| [LINE](https://en.wikipedia.org/wiki/Long_interspersed_nuclear_element) | Long interspersed nuclear repeat |
+| 3	| [LTR](https://en.wikipedia.org/wiki/LTR_retrotransposon) | Long terminal repeat |
+| 4	| [Low_complexity](http://www.repeatmasker.org/webrepeatmaskerhelp.html) | Tandem repeats, polypurine, and AT-rich regions |
+| 5	| [RC](https://en.wikipedia.org/wiki/Rolling_circle_replication) | Rolling circle replication |
+| 6	| [Retroposon](https://en.wikipedia.org/wiki/Retroposon) | Repetative DNA fragments that were reverse transcribed from RNA |
+| 7	| [rRNA](https://en.wikipedia.org/wiki/Ribosomal_RNA) | Ribosomal RNA |
+| 8	| [Satellite](https://en.wikipedia.org/wiki/Satellite_DNA) | Large arrays of tandemly repeating, non-coding DNA |
+| 9	| [Simple_repeat](http://www.repeatmasker.org/webrepeatmaskerhelp.html) | Micro-satellites |
+| 10	| [SINE](https://en.wikipedia.org/wiki/Short_interspersed_nuclear_element) | Short interspersed nuclear elements |
+| 11	| [snRNA](https://en.wikipedia.org/wiki/Small_nuclear_RNA) | Small nuclear RNA |
+| 12	| [TIR](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3562082/) | Terminal inverse repeats |
+| 13	| [tRNA](https://www.nature.com/scitable/definition/trna-transfer-rna-256) | Transfer RNA |
+
+### TE Superfamilies
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0	| Unassigned | Superfamily was not specified or is unknown |
+| 1	| Cassandra | |
+| 2	| Caulimovirus | |
+| 3	| centr | |
+| 4	| CMC-EnSpm | |
+| 5	| Copia | |
+| 6	| En-Spm | |
+| 7	| Gypsy | |
+| 8	| HAT | |
+| 9	| hAT-Ac | |
+| 10	| hAT-Charlie | |
+| 11	| hAT-Tag1 | |
+| 12	| hAT-Tip100 | |
+| 13	| Harbinger | |
+| 14	| Helitron | |
+| 15	| L1 | | |
+| 16	| L1-dep | |
+| 17	| Mariner | |
+| 18	| MuDR | |
+| 19	| MULE-MuDR | |
+| 20	| PIF-Harbinger | |
+| 21	| Pogo | |
+| 22	| RathE1_cons | |
+| 23	| RathE2_cons | |
+| 24	| RathE3_cons | |
+| 25	| Tc1 | |
+| 26	| TcMar-Mariner | |
+| 27	| TcMar-Pogo | |
+| 28	| TcMar-Stowaway | |
+| 29	| tRNA | |
+| 30	| [solo](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC479113/#__sec3title) | A relatively intact LTR flanked by TSDs | |
