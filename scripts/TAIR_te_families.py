@@ -127,7 +127,7 @@ def modify_attributes(o_su):
 	if 'RathE' in o:
 		su = o.rstrip('_cons')
 		o = 'SINE'
-	return ';Order=%s;Super=%s'%(o, su)
+	return ';Order=%s;Superfamily=%s'%(o, su)
 	
 
 if __name__ == "__main__":

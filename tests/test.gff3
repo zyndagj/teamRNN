@@ -2,7 +2,7 @@
 Chr1	test	CDS	3	10	.	+	.	ID=team_0
 Chr1	test	gene	3	10	.	+	.	ID=team_1
 Chr1	test	exon	4	7	.	+	.	ID=team_2
-Chr1	test	transposable_element	11	15	.	-	.	ID=team_3;Class=LTR/Gypsy
+Chr1	test	transposable_element	11	15	.	-	.	ID=team_3;Order=LTR;Superfamily=Gypsy
 Chr2	test	CDS	2	15	.	-	.	ID=team_4
 Chr2	test	gene	2	15	.	-	.	ID=team_5
 Chr2	test	exon	3	7	.	-	.	ID=team_6

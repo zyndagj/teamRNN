@@ -40,7 +40,8 @@ from pysam import FastaFile
 import h5py, os, sys
 import numpy as np
 from teamRNN.util import irange, iterdict
-from teamRNN.constants import gff3_f2i, gff3_i2f, strands, contexts, te_cf_f2i, te_cf_i2f
+from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index, te_feature_names
+from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam_i2f
 
 class output_aggregator:
 	'''
@@ -65,30 +66,35 @@ class output_aggregator:
 	def _load_arrays(self, chrom):
 		self.feature_vote_array = self.H5[chrom+'/votes/features']
 		#self.feature_total_array = self.H5[chrom+'/totals/features']
-		self.te_vote_array = self.H5[chrom+'/votes/tes']
+		self.te_order_array = self.H5[chrom+'/votes/tes/order']
+		self.te_sufam_array = self.H5[chrom+'/votes/tes/sufam']
 		#self.te_total_array = self.H5[chrom+'/totals/tes']
 		self.cur_chrom = chrom
 	def _genome_init(self):
 		n_features = len(gff3_i2f)
-		n_te_ids = len(te_cf_i2f)
+		n_order_ids = len(te_order_i2f)
+		n_sufam_ids = len(te_sufam_i2f)
 		for chrom, chrom_len in iterdict(self.chrom_dict):
+			# total != sum
 			self.feature_vote_array = self.H5.create_dataset(chrom+'/votes/features', \
 				(chrom_len, n_features), compression='gzip', \
 				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
 			self.feature_total_array = self.H5.create_dataset(chrom+'/totals/features', \
 				(chrom_len, 1), compression='gzip', \
 				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
-			self.te_vote_array = self.H5.create_dataset(chrom+'/votes/tes', \
-				(chrom_len, n_te_ids), compression='gzip', \
+			# These do not need a total array since there is only a single value per location
+			self.te_order_array = self.H5.create_dataset(chrom+'/votes/tes/order', \
+				(chrom_len, n_order_ids), compression='gzip', \
 				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
-			#self.te_total_array = self.H5.create_dataset(chrom+'/totals/tes', \
-			#	(chrom_len, 1), compression='gzip', \
-			#	compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
+			self.te_sufam_array = self.H5.create_dataset(chrom+'/votes/tes/sufam', \
+				(chrom_len, n_sufam_ids), compression='gzip', \
+				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
 		self.cur_chrom = chrom
 	def vote(self, chrom, start, end, array):
 		# Split the array
 		feature_array = array[:,:len(gff3_i2f)]
-		te_cf_array = array[:,54]
+		te_order_array = array[:,-2]
+		te_sufam_array = array[:,-1]
 		# Load the current chromosome arrays
 		if self.cur_chrom != chrom:
 			self._load_arrays(chrom)
@@ -97,11 +103,12 @@ class output_aggregator:
 		if np.sum(feature_array):
 			self.feature_vote_array[start:end] += feature_array
 		# Track te class/family
-		if sum(te_cf_array):
-			for i,v in enumerate(te_cf_array):
-				self.te_vote_array[start+i,v] += 1
-			#self.te_total_array[start:end] += 1
-			#self.te_vote_array[start:end,te_cf_array] += 1
+		if sum(te_order_array):
+			for i,v in enumerate(te_order_array):
+				self.te_order_array[start+i,v] += 1
+		if sum(te_sufam_array):
+			for i,v in enumerate(te_sufam_array):
+				self.te_sufam_array[start+i,v] += 1
 	def write_gff3(self, out_file='', threshold=0.5):
 		total_feature_count = 0
 		out_gff3 = ['##gff-version   3']
@@ -132,11 +139,12 @@ class output_aggregator:
 				strand = full_name[0]
 				feature_name = full_name[1:]
 				feature_str = "%s\tteamRNN\t%s\t%i\t%i\t.\t%s\t.\tID=team_%i"%(chrom, feature_name, s, e, strand, total_feature_count)
-				if feature_name in set(('transposable_element', 'transposable_element_gene')):
-					sum_cf_index = np.sum(self.te_vote_array[s-1:e], axis=0)
-					max_cf_index = np.argmax(sum_cf_index)
-					te_cf = te_cf_i2f[max_cf_index]
-					feature_str += ';Class=%s'%(te_cf)
+				if feature_name in te_feature_names:
+					argmax_order_sum = np.argmax(np.sum(self.te_order_array[s-1:3], axis=0))
+					te_order = te_order_i2f[argmax_order_sum]
+					argmax_sufam_sum = np.argmax(np.sum(self.te_sufam_array[s-1:3], axis=0))
+					te_sufam = te_sufam_i2f[argmax_sufam_sum]
+					feature_str += ';Order=%s;Superfamily='%(te_cf)
 				out_gff3.append(feature_str)
 				total_feature_count += 1
 		if out_file:

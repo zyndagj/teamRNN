@@ -5,7 +5,8 @@ from Meth5py import Meth5py
 import subprocess as sp
 import numpy as np
 from quicksect import IntervalTree
-from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index, te_cf_f2i, te_cf_i2f
+from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index, te_feature_names
+from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam_i2f
 from teamRNN.util import irange, iterdict
 from collections import defaultdict as dd
 import re
@@ -62,8 +63,8 @@ class refcache:
 class gff3_interval:
 	def __init__(self, gff3, include_chrom=False):
 		self.gff3 = gff3
-		self._class_re = re.compile('Class=(?P<class>[^;/]+)(/(?P<family>[^;]+))?')
-		self._family_re = re.compile('Family=(?P<family>[^;]+)')
+		self._order_re = re.compile('Order=(?P<order>[^;/]+)(/(?P<sufam>[^;]+))?')
+		self._sufam_re = re.compile('Superfamily=(?P<sufam>[^;]+)')
 		# creates self.interval_tree
 		self._2tree(include_chrom)
 	def _2tree(self, include_chrom=False):
@@ -76,32 +77,37 @@ class gff3_interval:
 				chrom, strand, element, attributes = tmp[0], tmp[6], tmp[2], tmp[8]
 				if element not in exclude:
 					element_id = gff3_f2i[strand+element]
-					te_cf_id = 0
-					if element in set(('transposable_element', 'transposable_element_gene')):
-						m1 = self._class_re.search(attributes)
-						te_class = m1.group('class').lower()
-						if te_class:
+					te_order_id = 0
+					te_sufam_id = 0
+					if element in te_feature_names:
+						m1 = self._order.search(attributes)
+						if m1:
+							# Order
+							te_order = m1.group('order').lower()
+							if te_order in te_order_f2i:
+								te_order_id = te_order_f2i[te_order]
 							m2 = self._family_re.search(attributes)
-							if m1.group('family'):
-								te_cf = "%s/%s"%(te_class, m1.group('family').lower())
-							elif m2.group('family'):
-								te_cf = "%s/%s"%(te_class, m2.group('family').lower())
-							else:
-								te_cf = te_class
-							if te_cf in te_cf_f2i:
-								te_cf_id = te_cf_f2i[te_cf]
+							if m2:
+								# Super family
+								if m1.group('sufam'):
+									te_sufam = m1.group('sufam')
+								elif m2.group('sufam'):
+									te_sufam = m2.group('sufam')
+								if te_sufam and te_sufam in te_sufam_f2i:
+									te_sufam_id = te_sufam_f2i[te_sufam]
 					start, end = map(int, tmp[3:5])
-					self.interval_tree[chrom].add(start-1, end, (element_id, te_cf_id))
+					self.interval_tree[chrom].add(start-1, end, (element_id, te_order_id, te_sufam_id))
 	def fetch(self, chrom, start, end):
-		outA = np.zeros((end-start, len(gff3_f2i)+1), dtype=np.uint8)
+		outA = np.zeros((end-start, len(gff3_f2i)+2), dtype=np.uint8)
 		#print("Fetching %s:%i-%i"%(chrom, start, end))
 		for interval in self.interval_tree[chrom].search(start,end):
 			s = max(interval.start, start)-start
 			e = min(interval.end, end)-start
-			element_id, te_cf_id = interval.data
+			element_id, te_order_id, te_sufam_id = interval.data
 			#print("Detected %s at %i-%i"%(i,s,e))
 			outA[s:e,element_id] = 1
-			outA[s:e,54] = te_cf_id
+			outA[s:e,-2] = te_order_id
+			outA[s:e,-1] = te_sufam_id
 		return outA
 
 class input_slicer:
@@ -147,7 +153,6 @@ class input_slicer:
 				yield (coord, out_slice, y_array)
 			else:
 				yield (coord, out_slice)
-		# TODO output location with slice for voting
 	def genome_iter(self, seq_len=5):
 		for chrom in sorted(self.FA.references):
 			for out in self.chrom_iter(chrom, seq_len):

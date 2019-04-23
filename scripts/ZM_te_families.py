@@ -112,7 +112,7 @@ def main():
 				family = match.group(1)
 				superfamily = superfamily_dict[family.lower()]
 		# Modify the attributes
-		attributes += ';Order=%s;Super=%s'%(order, superfamily)
+		attributes += ';Order=%s;Superfamily=%s'%(order, superfamily)
 		split_line[8] = attributes
 		out_str = '\t'.join(split_line)
 		OF.write(out_str+'\n')
