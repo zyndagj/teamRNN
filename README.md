@@ -1,5 +1,30 @@
 # teamRNN
 
+## Installation
+
+### Conda
+
+```shell
+# OSX
+conda env create -f extras/team-py3-osx.yaml
+
+# Linux
+conda env create -f extras/team-py3-linux.yaml
+
+# Activate Environment
+conda activate team-py3
+```
+
+## Testing
+
+```shell
+# Activate environment
+conda activate team-py3
+python setup.py test
+```
+
+> We recommend installing first since some the dependencies are rather large
+
 ## Input specification
 
 Batch Input = [batch x sequence_length x input_size]
@@ -122,8 +147,8 @@ Batch Output = [batch x sequence_length x input_size]
 
 | Index | Data type | Description |
 |-------|-----------|-------------|
-| 57 | uint-8 | transposable_element Order |
-| 58 | uint-8 | transposable_element Superfamily |
+| 56 | uint-8 | transposable_element Order |
+| 57 | uint-8 | transposable_element Superfamily |
 
 Mapping rules for *A. thaliana*:
 

@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 04/10/2019
+# Last Modified: 04/23/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -140,11 +140,11 @@ class output_aggregator:
 				feature_name = full_name[1:]
 				feature_str = "%s\tteamRNN\t%s\t%i\t%i\t.\t%s\t.\tID=team_%i"%(chrom, feature_name, s, e, strand, total_feature_count)
 				if feature_name in te_feature_names:
-					argmax_order_sum = np.argmax(np.sum(self.te_order_array[s-1:3], axis=0))
+					argmax_order_sum = np.argmax(np.sum(self.te_order_array[s-1:e], axis=0))
 					te_order = te_order_i2f[argmax_order_sum]
-					argmax_sufam_sum = np.argmax(np.sum(self.te_sufam_array[s-1:3], axis=0))
+					argmax_sufam_sum = np.argmax(np.sum(self.te_sufam_array[s-1:e], axis=0))
 					te_sufam = te_sufam_i2f[argmax_sufam_sum]
-					feature_str += ';Order=%s;Superfamily='%(te_cf)
+					feature_str += ';Order=%s;Superfamily=%s'%(te_order, te_sufam)
 				out_gff3.append(feature_str)
 				total_feature_count += 1
 		if out_file:

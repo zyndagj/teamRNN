@@ -63,7 +63,7 @@ class refcache:
 class gff3_interval:
 	def __init__(self, gff3, include_chrom=False):
 		self.gff3 = gff3
-		self._order_re = re.compile('Order=(?P<order>[^;/]+)(/(?P<sufam>[^;]+))?')
+		self._order_re = re.compile('Order=(?P<order>[^;/]+)')
 		self._sufam_re = re.compile('Superfamily=(?P<sufam>[^;]+)')
 		# creates self.interval_tree
 		self._2tree(include_chrom)
@@ -80,23 +80,17 @@ class gff3_interval:
 					te_order_id = 0
 					te_sufam_id = 0
 					if element in te_feature_names:
-						m1 = self._order.search(attributes)
-						if m1:
-							# Order
-							te_order = m1.group('order').lower()
-							if te_order in te_order_f2i:
-								te_order_id = te_order_f2i[te_order]
-							m2 = self._family_re.search(attributes)
-							if m2:
-								# Super family
-								if m1.group('sufam'):
-									te_sufam = m1.group('sufam')
-								elif m2.group('sufam'):
-									te_sufam = m2.group('sufam')
-								if te_sufam and te_sufam in te_sufam_f2i:
-									te_sufam_id = te_sufam_f2i[te_sufam]
+						te_order, te_sufam = self._extract_order_sufam(attributes)
+						te_order_id = te_order_f2i[te_order.lower()]
+						te_sufam_id = te_sufam_f2i[te_sufam.lower()]
 					start, end = map(int, tmp[3:5])
 					self.interval_tree[chrom].add(start-1, end, (element_id, te_order_id, te_sufam_id))
+	def _extract_order_sufam(self, attribute_string):
+		order_match = self._order_re.search(attribute_string)
+		sufam_match = self._sufam_re.search(attribute_string)
+		order_str = order_match.group('order') if order_match else ''
+		sufam_str = sufam_match.group('sufam') if sufam_match else ''
+		return (order_str, sufam_str)
 	def fetch(self, chrom, start, end):
 		outA = np.zeros((end-start, len(gff3_f2i)+2), dtype=np.uint8)
 		#print("Fetching %s:%i-%i"%(chrom, start, end))

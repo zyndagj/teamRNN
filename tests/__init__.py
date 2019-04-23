@@ -27,7 +27,9 @@ class TestReader(unittest.TestCase):
 		self.gff3 = os.path.join(tpath, 'test.gff3')
 		self.mr1 = os.path.join(tpath, 'test_meth.txt')
 		self.n_inputs = 10
-		self.n_outputs = len(constants.gff3_f2i)+1
+		self.n_outputs = len(constants.gff3_f2i)+2
+		self.test_model = True
+		self.n_epoch = 500
 	def tearDown(self):
 		## Runs after every test function ##
 		# Wipe log
@@ -75,26 +77,33 @@ class TestReader(unittest.TestCase):
 		res2 = GI.interval_tree['Chr1'].search(0,3)
 		self.assertEqual(len(res2), 3)
 	def test_gff2array(self):
-		##gff-version   3
-		#Chr1	test	CDS	3	10	.	+	.	ID
-		#Chr1	test	gene	3	10	.	+	.	ID
-		#Chr1	test	exon	4	7	.	+	.	ID
-		#Chr2	test	CDS	2	15	.	-	.	ID
-		#Chr2	test	gene	2	15	.	-	.	ID
-		#Chr2	test	exon	3	7	.	-	.	ID
-		#Chr2	test	exon	9	14	.	-	.	ID
+		###gff-version   3
+		#Chr1    test    CDS     3       10      .       +       .       ID=team_0
+		#Chr1    test    gene    3       10      .       +       .       ID=team_1
+		#Chr1    test    exon    4       7       .       +       .       ID=team_2
+		#Chr1    test    transposable_element    11      15      .       -       .       ID=team_3;Order=LTR;Superfamily=Gypsy
+		#Chr2    test    CDS     2       15      .       -       .       ID=team_4
+		#Chr2    test    gene    2       15      .       -       .       ID=team_5
+		#Chr2    test    exon    3       7       .       -       .       ID=team_6
+		#Chr2    test    exon    9       14      .       -       .       ID=team_7
 		GI = reader.gff3_interval(self.gff3)
 		res1 = GI.fetch('Chr1', 0, 15)
-		tmp = np.zeros((15,len(constants.gff3_f2i)+1), dtype=np.uint8)
+		tmp = np.zeros((15, self.n_outputs), dtype=np.uint8)
 		tmp[2:10,constants.gff3_f2i['+CDS']] = 1
 		tmp[2:10,constants.gff3_f2i['+gene']] = 1
 		tmp[3:7,constants.gff3_f2i['+exon']] = 1
 		tmp[10:15,constants.gff3_f2i['-transposable_element']] = 1
-		tmp[10:15,54] = constants.te_cf_f2i['ltr/gypsy']
+		tmp[10:15,56] = constants.te_order_f2i['ltr']
+		tmp[10:15,57] = constants.te_sufam_f2i['gypsy']
 		self.assertEqual(res1.shape, tmp.shape)
+		for i in range(15):
+			if not np.array_equal(res1[i], tmp[i]):
+				print("At index %i"%(i))
+				print("Code:",res1[i])
+				print("Test:",tmp[i])
 		self.assertTrue(np.array_equal(res1, tmp))
 		res2 = GI.fetch('Chr2', 0, 18)
-		tmp = np.zeros((18,len(constants.gff3_f2i)+1))
+		tmp = np.zeros((18,self.n_outputs))
 		tmp[1:15,constants.gff3_f2i['-CDS']] = 1
 		tmp[1:15,constants.gff3_f2i['-gene']] = 1
 		tmp[2:7,constants.gff3_f2i['-exon']] = 1
@@ -109,11 +118,12 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(XYL[9][2][0][constants.gff3_f2i['+CDS']], 1)
 		for i in range(10, 15):
 			self.assertEqual(XYL[i][2][0][constants.gff3_f2i['-transposable_element']], 1)
-			self.assertEqual(XYL[i][2][0][54], 26)
+			self.assertEqual(XYL[i][2][0][56], 3)
+			self.assertEqual(XYL[i][2][0][57], 7)
 		self.assertEqual(sum(XYL[0][2][0]), 0)
 		self.assertEqual(sum(XYL[1][2][0]), 0)
 		self.assertEqual(sum(XYL[16][2][0]), 0)
-		self.assertEqual(sum(XYL[8][2][2]), 27)
+		self.assertEqual(sum(XYL[8][2][2]), 11)
 		self.assertEqual(sum(XYL[8][2][1]), 2)
 		self.assertEqual(len(XYL), 16+16)
 	def test_vote(self):
@@ -144,7 +154,7 @@ class TestReader(unittest.TestCase):
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
 			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
 			if IS.gff3_file:
-				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)+1))
+				self.assertEqual(np.array(out[2]).shape, (4, 5, self.n_outputs))
 	def test_batch(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
 		BL = list(IS.batch_iter(batch_size=4))
@@ -171,6 +181,7 @@ class TestReader(unittest.TestCase):
 		out = BL[-1]
 		self.assertEqual(np.array(out[1]).shape, (2, 5, 10))
 	def test_same_model(self):
+		if not self.test_model: return
 		seq_len = 5
 		model.reset_graph()
 		# create models
@@ -189,6 +200,7 @@ class TestReader(unittest.TestCase):
 				mse = [m.train(xb, yb) for m in models]
 				self.assertEqual(mse[0], mse[1])
 	def test_model_effect(self):
+		if not self.test_model: return
 		seq_len = 5
 		model.reset_graph()
 		# create models
@@ -232,6 +244,7 @@ class TestReader(unittest.TestCase):
 				self.assertNotEqual(mse[0], mse[13])
 				first = False
 	def test_train_01(self):
+		if not self.test_model: return
 		from random import shuffle, random
 		seq_len = 15
 		batch_size = 6
@@ -242,7 +255,7 @@ class TestReader(unittest.TestCase):
 		ts = time()
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		ISBL = list(IS.batch_iter(seq_len, batch_size))
-		for epoch in range(1,2001):
+		for epoch in range(1,self.n_epoch+1):
 			for cb, xb, yb in ISBL:
 				# shuffle indices
 				self.assertEqual(len(xb), batch_size)
@@ -283,6 +296,7 @@ class TestReader(unittest.TestCase):
 					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
 	def test_train_02_restore(self):
+		if not self.test_model: return
 		from random import shuffle, random
 		seq_len = 15
 		batch_size = 6
