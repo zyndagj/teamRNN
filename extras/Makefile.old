@@ -1,3 +1,4 @@
+PREF_FLAG := -X 5 -q
 DUMP_FLAG := -X 5
 
 ANNO_PREFIX := ftp://ftp.ensemblgenomes.org/pub/plants/current/gff3
@@ -8,11 +9,11 @@ pull-ref = wget -q -np -nd -r $(REF_PREFIX)/$(notdir $(1))/dna -A dna.toplevel.f
 	&& ls $(1)/*gz | xargs -n 1 -P 2 gzip -d
 
 fq-dump2 = export SRA=$(1) NAME=$(2) \
-	&& prefetch -q $${SRA} && fastq-dump $(DUMP_FLAG) --split-files $${SRA} \
+	&& prefetch $(PREF_FLAG) $${SRA} && fastq-dump $(DUMP_FLAG) --split-files $${SRA} \
 	&& mv $${SRA}_1.fastq $(3)/$${NAME}_1.fastq && mv $${SRA}_2.fastq $(3)/$${NAME}_2.fastq
 
 fq-dump1 = export SRA=$(1) NAME=$(2) \
-	&& prefetch -q $${SRA} && fastq-dump $(DUMP_FLAG) $${SRA} \
+	&& prefetch $(PREF_FLAG) $${SRA} && fastq-dump $(DUMP_FLAG) $${SRA} \
 	&& mv $${SRA}.fastq $(3)/$${NAME}.fastq
 
 #.PHONY: plants/aegilops_tauschii
