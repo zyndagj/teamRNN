@@ -2,9 +2,9 @@ TEST_AT_CHROM := 3
 TRAIN_AT_CHROM := 1 2 4 5 Mt Pt
 TEST_ZM_CHROM := 10
 
-PREF_FLAG := -X 100G -q
-DUMP_FLAG := -X 5 -W
-fq-dump2 = export SRA=$(1) NAME=$(2); export NAME=${NAME/_[12].fastq/} \
+PREF_FLAG := -X 200G -q
+DUMP_FLAG := -W
+fq-dump2 = export SRA=$(1) NAME=$(2); export NAME=$${NAME/_[12].fastq/} \
 	&& prefetch $(PREF_FLAG) $${SRA} && fastq-dump $(DUMP_FLAG) --split-files $${SRA} \
 	&& mv $${SRA}_1.fastq $${NAME}_1.fastq && mv $${SRA}_2.fastq $${NAME}_2.fastq
 fq-dump1 = export SRA=$(1) NAME=$(2) \
@@ -12,17 +12,33 @@ fq-dump1 = export SRA=$(1) NAME=$(2) \
 	&& mv $${SRA}.fastq $${NAME}.fastq
 
 ##########################################
+# Create conda environment
+##########################################
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+	OS := linux
+endif
+ifeq ($(UNAME_S),Darwin)
+	OS := osx
+endif
+conda-env: conda
+	conda env create -f team-py3-$(OS).yaml
+	conda clean --all -y
+clean-env: conda
+	conda remove --name team-py3 --all -y
+##########################################
 # Check software
 ##########################################
-.PHONY: TAIR_te_families.py samtools ZM_te_families.py
-.SILENT: TAIR_te_families.py samtools ZM_te_families.py
+PROGRAMS := TAIR_te_families.py samtools ZM_te_families.py prefetch conda
+.PHONY: $(PROGRAMS)
+.SILENT: $(PROGRAMS)
 samtools:
 	$@ help 1> /dev/null 2> /dev/null; \
 	if [ ! $$? -eq 0 ]; then \
 		echo "\n[ERROR] $@ does not seem to be on your path\n"; \
 		exit 1; \
 	fi
-ZM_te_families.py TAIR_te_families.py:
+prefetch ZM_te_families.py TAIR_te_families.py:
 	$@ -h &> /dev/null; \
 	if [ ! $$? -eq 0 ]; then \
 		echo "\n[ERROR] $@ does not seem to be on your path. Please install teamRNN\n"; \
@@ -48,16 +64,16 @@ arabidopsis_thaliana/reads: arabidopsis_thaliana
 # https://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1004785
 # https://www.ebi.ac.uk/ena/data/view/PRJEB6701
 # Based on Table S2 th_M*-C_*t
-arabidopsis_thaliana/reads/th_M1-C_Rt_1.fastq:
+arabidopsis_thaliana/reads/th_M1-C_Rt_1.fastq: arabidopsis_thaliana/reads | prefetch
 	# ERR575727       Arabidopsis thaliana    th_M1-C_Rt root control
 	$(call fq-dump2,ERR575727,$@)
-arabidopsis_thaliana/reads/th_M1-C_St_1.fastq:
+arabidopsis_thaliana/reads/th_M1-C_St_1.fastq: arabidopsis_thaliana/reads | prefetch
 	# ERR575728       Arabidopsis thaliana    th_M1-C_St stem control
 	$(call fq-dump2,ERR575728,$@)
-arabidopsis_thaliana/reads/th_M2-C_Rt_1.fastq:
+arabidopsis_thaliana/reads/th_M2-C_Rt_1.fastq: arabidopsis_thaliana/reads | prefetch
 	# ERR575731       Arabidopsis thaliana    th_M2-C_Rt root control
 	$(call fq-dump2,ERR575731,$@)
-arabidopsis_thaliana/reads/th_M2-C_St_1.fastq:
+arabidopsis_thaliana/reads/th_M2-C_St_1.fastq: arabidopsis_thaliana/reads | prefetch
 	# ERR575732       Arabidopsis thaliana    th_M2-C_St stem control
 	$(call fq-dump2,ERR575732,$@)
 AT_READS := $(shell echo arabidopsis_thaliana/reads/th_M{1,2}-C_{S,R}t_1.fastq)
@@ -77,27 +93,27 @@ Zea_mays.B73_RefGen_v4.dna.toplevel.fa.fai: Zea_mays.B73_RefGen_v4.dna.toplevel.
 zea_mays/reads: zea_mays
 	[ ! -e $@ ] && mkdir $@
 # https://www.ebi.ac.uk/ena/data/view/PRJNA391551
-zea_mays/reads/ZmMC_BS_1.3_1.fastq:
+zea_mays/reads/ZmMC_BS_1.3_1.fastq: zea_mays/reads | prefetch
 	# SRR5748715	Zea mays	ZmMC_BS_1.3	PAIRED	Bisulfite-Seq
 	$(call  fq-dump2,SRR5748715,$@)
-zea_mays/reads/ZmMC_BS_1.2_1.fastq:
+zea_mays/reads/ZmMC_BS_1.2_1.fastq: zea_mays/reads | prefetch
 	# SRR5748716	Zea mays	ZmMC_BS_1.2	PAIRED	Bisulfite-Seq
 	$(call  fq-dump2,SRR5748716,$@)
-zea_mays/reads/ZmMC_BS_1.1_1.fastq:
+zea_mays/reads/ZmMC_BS_1.1_1.fastq: zea_mays/reads | prefetch
 	# SRR5748717	Zea mays	ZmMC_BS_1.1	PAIRED	Bisulfite-Seq
 	$(call  fq-dump2,SRR5748717,$@)
-zea_mays/reads/ZmMC_BS_2.3_1.fastq:
+zea_mays/reads/ZmMC_BS_2.3_1.fastq: zea_mays/reads | prefetch
 	# SRR5748719	Zea mays	ZmMC_BS_2.3	PAIRED	Bisulfite-Seq
 	$(call  fq-dump2,SRR5748719,$@)
-zea_mays/reads/ZmMC_BS_2.2_1.fastq:
+zea_mays/reads/ZmMC_BS_2.2_1.fastq: zea_mays/reads | prefetch
 	# SRR5748720	Zea mays	ZmMC_BS_2.2	PAIRED	Bisulfite-Seq
 	$(call  fq-dump2,SRR5748720,$@)
-zea_mays/reads/ZmMC_BS_2.1_1.fastq:
+zea_mays/reads/ZmMC_BS_2.1_1.fastq: zea_mays/reads | prefetch
 	# SRR5748721	Zea mays	ZmMC_BS_2.1	PAIRED	Bisulfite-Seq
 	$(call  fq-dump2,SRR5748721,$@)
 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4311211/
 # https://www.ncbi.nlm.nih.gov/bioproject/PRJNA202919
-zea_mays/reads/B73xMo17_1.fastq:
+zea_mays/reads/B73xMo17_1.fastq: | prefetch
 	#PRJNA202919 	SRR850328	Zea mays	B73xMo17	PAIRED	Bisulfite-Seq
 	$(call fq-dump2,SRR850328,B73xMo17,$@)
 ZM_READS := $(shell echo zea_mays/reads/{B73xMo17,ZmMC_BS_{1,2}.{1,2,3}}_1.fastq)
@@ -171,7 +187,7 @@ zea_mays/zea_mays_test.fasta: Zea_mays.B73_RefGen_v4.dna.toplevel.fa.fai zea_may
 ZMAYS := $(shell echo zea_mays/zea_mays_{train,test}.{gff3,fasta})
 	
 clean-data:
-	rm -f $(ATHALIANA) arabidopsis_thaliana $(ZMAYS) zea_mays
+	rm -rf $(ATHALIANA) arabidopsis_thaliana $(ZMAYS) zea_mays
 
 ##########################################
 # Top level targets

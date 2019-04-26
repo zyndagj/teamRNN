@@ -112,7 +112,8 @@ class output_aggregator:
 	def write_gff3(self, out_file='', threshold=0.5):
 		total_feature_count = 0
 		out_gff3 = ['##gff-version   3']
-		for chrom, chrom_len in iterdict(self.chrom_dict):
+		for chrom in sorted(self.chrom_dict.keys()):
+			chrom_len = self.chrom_dict[chrom]
 			features = []
 			se_array = [[0,0] for i in irange(len(gff3_i2f))]
 			self._load_arrays(chrom)

@@ -283,7 +283,7 @@ class TestReader(unittest.TestCase):
 				ys = ', '.join(yl)
 				yps = ', '.join(ypl)
 				if ys != yps:
-					print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(*c[0], feature_index, ys, yps))
+					print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
 			self.assertTrue(np.array_equal(y, y_pred))
 			OA.vote(*c[0], array=y_pred)
 		# Compare
@@ -319,7 +319,7 @@ class TestReader(unittest.TestCase):
 				ys = ', '.join(yl)
 				yps = ', '.join(ypl)
 				if ys != yps:
-					print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(*c[0], feature_index, ys, yps))
+					print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
 			self.assertTrue(np.array_equal(y, y_pred))
 			OA.vote(*c[0], array=y_pred)
 		# Compare
