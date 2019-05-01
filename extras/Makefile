@@ -29,7 +29,7 @@ clean-env: conda
 ##########################################
 # Check software
 ##########################################
-PROGRAMS := TAIR_te_families.py samtools ZM_te_families.py prefetch conda bsmapz
+PROGRAMS := TAIR_te_families.py samtools ZM_te_families.py prefetch conda bsmapz methratio.py
 .PHONY: $(PROGRAMS)
 .SILENT: $(PROGRAMS)
 samtools:
@@ -38,7 +38,7 @@ samtools:
 		echo "\n[ERROR] $@ does not seem to be on your path\n"; \
 		exit 1; \
 	fi
-prefetch ZM_te_families.py TAIR_te_families.py:
+methratio.py prefetch ZM_te_families.py TAIR_te_families.py:
 	$@ -h &> /dev/null; \
 	if [ ! $$? -eq 0 ]; then \
 		echo "\n[ERROR] $@ does not seem to be on your path. Please install teamRNN\n"; \
@@ -142,12 +142,12 @@ clean-downloads:
 # Align the reads
 ##########################################
 
-NUM_CORES=16
+NUM_CORES=128
 
 zea_mays/reads/%.bam: | zea_mays/reads/%_1.fastq zea_mays/reads/%_2.fastq Zea_mays.B73_RefGen_v4.dna.toplevel.fa bsmapz
-	bsmapz -a $(word 1,$|) -b $(word 2,$|) -d $(word 3,$|) -p $(NUM_CORES) -q 20 -r 0 -z 33 -S 77345 -w 10000 | samtools view -uS - | samtools sort -m 200M -@ 8 -O bam -o $@ -T $@.tmp
+	bsmapz -a $(word 1,$|) -b $(word 2,$|) -d $(word 3,$|) -p $(NUM_CORES) -q 20 -r 0 -z 33 -S 77345 -w 10000 | samtools view -uS - | samtools sort -m 1G -@ 24 -O bam -o $@ -T $@.tmp
 
-arabidopsis_thaliana/reads/%.bam: arabidopsis_thaliana/reads/%_1.fastq arabidopsis_thaliana/reads/%_2.fastq Arabidopsis_thaliana.TAIR10.dna.toplevel.fa | bsmapz
+arabidopsis_thaliana/reads/%.bam: arabidopsis_thaliana/reads/%_1.fastq arabidopsis_thaliana/reads/%_2.fastq Arabidopsis_thaliana.TAIR10.dna.toplevel.fa | bsmapz samtools
 	bsmapz -a $< -b $(word 2,$^) -d $(word 3,$^) -p $(NUM_CORES) -q 20 -r 0 -z 33 -S 77345 -w 10000 | samtools view -uS - | samtools sort -m 400M -@ 12 -O bam -o $@ -T $@.tmp
 
 BAMS = $(shell echo arabidopsis_thaliana/reads/th_M{1,2}-C_{R,S}t.bam zea_mays/reads/{B73xMo17,ZmMC_BS_{1,2}.{1,2,3}}.bam)
@@ -156,7 +156,31 @@ bams: $(BAMS)
 
 clean-bams:
 	rm -f $(BAMS)
+##########################################
+# Index the bams
+##########################################
 
+%.bam.bai: %.bam | samtools
+	samtools index $<
+
+BAIS = $(BAMS:=.bai)
+bais: $(BAIS)
+clean-bais:
+	rm -f $(BAIS)
+
+##########################################
+# Call methylation ratios
+##########################################
+
+zea_mays/reads/%.bam.mr: zea_mays/reads/%.bam zea_mays/reads/%.bam.bai Zea_mays.B73_RefGen_v4.dna.toplevel.fa | samtools methratio.py
+	methratio.py -z -r -d $(word 3,$^) -u -p -o $@ -M 20000 -N 16 $<
+arabidopsis_thaliana/reads/%.bam.mr: arabidopsis_thaliana/reads/%.bam arabidopsis_thaliana/reads/%.bam.bai Arabidopsis_thaliana.TAIR10.dna.toplevel.fa | samtools methratio.py
+	methratio.py -z -r -d $(word 3,$^) -u -p -o $@ -M 20000 -N 16 $<
+
+MRS = $(BAMS:=.mr)
+methratios: $(MRS)
+clean-methratios:
+	rm -f $(MRS)
 
 ##########################################
 # Create training and test files
