@@ -22,10 +22,10 @@ ifeq ($(UNAME_S),Darwin)
 	OS := osx
 endif
 conda-env: conda
-	conda env create -f team-py3-$(OS).yaml
+	conda env create -f team-py2-$(OS).yaml
 	conda clean --all -y
 clean-env: conda
-	conda remove --name team-py3 --all -y
+	conda remove --name team-py2 --all -y
 ##########################################
 # Check software
 ##########################################
