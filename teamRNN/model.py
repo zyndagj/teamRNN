@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 04/10/2019
+# Last Modified: 05/01/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -199,11 +199,11 @@ class sleight_model:
 				feed_dict={self.X:x_batch, self.Y:y_batch, \
 						self.keep_p:self.training_keep})
 		return mse
-	def predict(self, x_batch, y_batch='', render=False):
+	def predict(self, x_batch, render=False):
 		with self.graph.as_default():
 			# The shape is now probably wrong for this
 			y_pred = np.abs(self.sess.run(self.logits, \
-					feed_dict={self.X:x_batch, self.Y:y_batch, self.keep_p:1.0}).round(0))
+					feed_dict={self.X:x_batch, self.keep_p:1.0}).round(0))
 			y_pred = y_pred.astype(np.uint8)
 		if render:
 			print("Model: %s"%(self.name))

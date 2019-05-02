@@ -20,7 +20,7 @@ dependencies:
   - zlib
   - xz
   - twine
-  - pysam
+  - pysam>0.11
   - mkdocs
   - quicksect
   - samtools=1.9=h46bd0b3_0

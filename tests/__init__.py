@@ -11,13 +11,14 @@ logStream = StringIO()
 import logging
 FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)15s] %(message)s"
 logging.basicConfig(stream=logStream, level=logging.DEBUG, format=FORMAT)
+import teamRNN
 from teamRNN import reader, constants, writer, model
 from pysam import FastaFile
 import numpy as np
-#try:
-#	from unittest.mock import patch
-#except:
-#	from mock import patch
+try:
+	from unittest.mock import patch
+except:
+	from mock import patch
 
 class TestReader(unittest.TestCase):
 	def setUp(self):
@@ -334,6 +335,54 @@ class TestReader(unittest.TestCase):
 		if os.path.exists(M.save_dir):
 			from shutil import rmtree
 			rmtree(M.save_dir)
+	def test_train_cli_01(self):
+		if not self.test_model: return
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', 'test_cli', \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'-B', '6', \
+			'train', \
+			'-A', self.gff3, \
+			'-E', str(self.n_epoch), \
+			'-L', '15', \
+			'-b', '-f', \
+			'-C', 'rnn']
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		self.assertTrue('Done' in splitOut[-2])
+		self.assertTrue(os.path.exists('test_cli/plain_i15x10_birnn1x100_learn0.001_pF_sF_d0.95_rF_h0.ckpt.index'))
+		self.assertTrue(os.path.exists('test_cli/config.pkl'))
+	def test_train_cli_02(self):
+		if not self.test_model: return
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', 'test_cli', \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'-B', '6', \
+			'classify', \
+			'-O', 'test_cli/out.gff3']
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		self.assertTrue('Done' in splitOut[-2])
+		self.assertTrue(os.path.exists('test_cli/out.gff3'))
+		F1 = open(self.gff3,'r')
+		F2 = open('test_cli/out.gff3','r')
+		for test_line, cli_line in zip(F1.readlines(), F2.readlines()):
+			if cli_line[0] != '#':
+				test_split = test_line.rstrip('\n').split('\t')
+				test_split[1] = 'teamRNN'
+				cli_split = cli_line.rstrip('\n').split('\t')
+				self.assertEqual(test_split, cli_split)
+		if os.path.exists('test_cli'):
+			from shutil import rmtree
+			rmtree('test_cli')
 
 if __name__ == "__main__":
 	unittest.main()

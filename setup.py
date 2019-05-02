@@ -17,5 +17,7 @@ setup(name = "teamRNN",
 	install_requires=["pysam","Meth5py","quicksect"],
 	tests_require=["pysam","Meth5py","quicksect"],
 	packages = ["teamRNN"],
+	entry_points = {'console_scripts': ['teamRNN=teamRNN:main']},
+	options = {'build_scripts': {'executable': '/usr/bin/env python'}},
 	scripts = list(glob('scripts/*')),
 	test_suite = "tests")
