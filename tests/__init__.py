@@ -72,7 +72,7 @@ class TestReader(unittest.TestCase):
 		IL = list(I.genome_iter(seq_len=10))
 		self.assertEqual(len(IL), 11+11)
 	def test_gff2interval(self):
-		GI = reader.gff3_interval(self.gff3)
+		GI = reader.gff3_interval(self.gff3, force=True)
 		res1 = GI.interval_tree['Chr1'].search(0,2)
 		self.assertEqual(len(res1), 2)
 		res2 = GI.interval_tree['Chr1'].search(0,3)
@@ -87,15 +87,15 @@ class TestReader(unittest.TestCase):
 		#Chr2    test    gene    2       15      .       -       .       ID=team_5
 		#Chr2    test    exon    3       7       .       -       .       ID=team_6
 		#Chr2    test    exon    9       14      .       -       .       ID=team_7
-		GI = reader.gff3_interval(self.gff3)
+		GI = reader.gff3_interval(self.gff3, force=True)
 		res1 = GI.fetch('Chr1', 0, 15)
 		tmp = np.zeros((15, self.n_outputs), dtype=np.uint8)
 		tmp[2:10,constants.gff3_f2i['+CDS']] = 1
 		tmp[2:10,constants.gff3_f2i['+gene']] = 1
 		tmp[3:7,constants.gff3_f2i['+exon']] = 1
 		tmp[10:15,constants.gff3_f2i['-transposable_element']] = 1
-		tmp[10:15,56] = constants.te_order_f2i['ltr']
-		tmp[10:15,57] = constants.te_sufam_f2i['gypsy']
+		tmp[10:15,len(constants.gff3_f2i)] = constants.te_order_f2i['ltr']
+		tmp[10:15,len(constants.gff3_f2i)+1] = constants.te_sufam_f2i['gypsy']
 		self.assertEqual(res1.shape, tmp.shape)
 		for i in range(15):
 			if not np.array_equal(res1[i], tmp[i]):
@@ -119,8 +119,8 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(XYL[9][2][0][constants.gff3_f2i['+CDS']], 1)
 		for i in range(10, 15):
 			self.assertEqual(XYL[i][2][0][constants.gff3_f2i['-transposable_element']], 1)
-			self.assertEqual(XYL[i][2][0][56], 3)
-			self.assertEqual(XYL[i][2][0][57], 7)
+			self.assertEqual(XYL[i][2][0][len(constants.gff3_f2i)], 3)
+			self.assertEqual(XYL[i][2][0][len(constants.gff3_f2i)+1], 7)
 		self.assertEqual(sum(XYL[0][2][0]), 0)
 		self.assertEqual(sum(XYL[1][2][0]), 0)
 		self.assertEqual(sum(XYL[16][2][0]), 0)
@@ -158,7 +158,18 @@ class TestReader(unittest.TestCase):
 				self.assertEqual(np.array(out[2]).shape, (4, 5, self.n_outputs))
 	def test_batch(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.batch_iter(batch_size=4))
+		BL = list(IS.batch_iter(seq_len=5, batch_size=4))
+		#for c,x in BL: print c
+		self.assertEqual(len(BL), 4+4)
+		for out in BL:
+			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
+			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
+			if IS.gff3_file:
+				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
+	def test_batch_new(self):
+		IS = reader.input_slicer(self.fa, self.mr1)
+		BL = list(IS.new_batch_iter(seq_len=5, batch_size=4))
+		#for c,x in BL: print c
 		self.assertEqual(len(BL), 4+4)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
@@ -172,15 +183,61 @@ class TestReader(unittest.TestCase):
 		for out in BL:
 			self.assertEqual(len(out), 2)
 			self.assertEqual(np.array(out[1]).shape, (11, 10, 10))
+	def test_batch_new_10(self):
+		IS = reader.input_slicer(self.fa, self.mr1)
+		BL = list(IS.new_batch_iter(seq_len=10, batch_size=11))
+		self.assertEqual(len(BL), np.round(22/11))
+		for out in BL:
+			self.assertEqual(len(out), 2)
+			self.assertEqual(np.array(out[1]).shape, (11, 10, 10))
 	def test_batch_uneven(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
 		BL = list(IS.batch_iter(batch_size=5))
+		#for c,x in BL: print c
 		self.assertEqual(len(BL), 7)
 		for out in BL[:-1]:
 			self.assertEqual(len(out), 2)
 			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
 		out = BL[-1]
 		self.assertEqual(np.array(out[1]).shape, (2, 5, 10))
+	def test_batch_new_uneven(self):
+		IS = reader.input_slicer(self.fa, self.mr1)
+		BL = list(IS.new_batch_iter(batch_size=5))
+		#for c,x in BL: print c
+		self.assertEqual(len(BL), 8)
+		for out in BL[:3]:
+			self.assertEqual(len(out), 2)
+			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
+		for out in BL[4:7]:
+			self.assertEqual(len(out), 2)
+			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
+		for index in (3,7):
+			self.assertEqual(len(BL[index][0]), 1)
+			self.assertEqual(BL[index][1].shape, (1,5,10))
+	def test_batch_new_vs_old(self):
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		c_old, x_old, y_old = [], [], []
+		c_new, x_new, y_new = [], [], []
+		for cb, xb, yb in IS.new_batch_iter(seq_len=3, batch_size=5):
+			c_new += cb
+			x_new += list(xb)
+			y_new += list(yb)
+		for cb, xb, yb in IS.batch_iter(seq_len=3, batch_size=5):
+			c_old += cb
+			x_old += xb
+			y_old += list(yb)
+		#print "old"
+		#for i in c_old: print i
+		#print "new"
+		#for i in c_new: print i
+		self.assertEqual(c_old, c_new)
+		self.assertEqual(np.array(x_old).shape, np.array(x_new).shape)
+#		for i in range(len(x_old)):
+#			print c_old[i]==c_new[i], c_old[i], c_new[i]
+#			for j in range(len(x_old[i])):
+#				print np.array_equal(x_old[i][j],x_new[i][j]), x_old[i][j], x_new[i][j]
+		self.assertTrue(np.array_equal(np.array(x_old), np.array(x_new)))
+		self.assertTrue(np.array_equal(np.array(y_old), np.array(y_new)))
 	def test_same_model(self):
 		if not self.test_model: return
 		seq_len = 5
@@ -197,7 +254,7 @@ class TestReader(unittest.TestCase):
 		# train models
 		for epoch in range(3):
 			IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-			for cb, xb, yb in IS.batch_iter(seq_len, batch_size=4):
+			for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
 				mse = [m.train(xb, yb) for m in models]
 				self.assertEqual(mse[0], mse[1])
 	def test_model_effect(self):
@@ -222,7 +279,7 @@ class TestReader(unittest.TestCase):
 		first = True
 		for epoch in range(3):
 			IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-			for cb, xb, yb in IS.batch_iter(seq_len, batch_size=4):
+			for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
 				mse = [m.train(xb, yb) for m in models]
 				# Should be qual
 				self.assertEqual(mse[0], mse[1])
@@ -248,14 +305,14 @@ class TestReader(unittest.TestCase):
 		if not self.test_model: return
 		from random import shuffle, random
 		seq_len = 15
-		batch_size = 6
+		batch_size = 20-seq_len+1
 		model.reset_graph()
 		# create models
 		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, bidirectional=True, save_dir='test_model')
 		# train models
 		ts = time()
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		ISBL = list(IS.batch_iter(seq_len, batch_size))
+		ISBL = list(IS.new_batch_iter(seq_len, batch_size))
 		for epoch in range(1,self.n_epoch+1):
 			for cb, xb, yb in ISBL:
 				# shuffle indices
@@ -273,9 +330,9 @@ class TestReader(unittest.TestCase):
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		# Vote
 		OA = writer.output_aggregator(self.fa)
-		for c, xb, yb in IS.batch_iter(seq_len, batch_size=1):
+		for c, xb, yb in IS.new_batch_iter(seq_len, batch_size=1):
 			y = yb[0]
-			y_pred = M.predict(xb, yb)[0]
+			y_pred = M.predict(xb)[0]
 			for feature_index in range(len(y[0])):
 				yl, ypl = [], []
 				for base_index in range(len(y)):
@@ -300,7 +357,7 @@ class TestReader(unittest.TestCase):
 		if not self.test_model: return
 		from random import shuffle, random
 		seq_len = 15
-		batch_size = 6
+		batch_size = 20-seq_len+1
 		model.reset_graph()
 		# create models
 		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, bidirectional=True, save_dir='test_model')
@@ -309,9 +366,9 @@ class TestReader(unittest.TestCase):
 		# Vote
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		OA = writer.output_aggregator(self.fa)
-		for c, xb, yb in IS.batch_iter(seq_len, batch_size=1):
+		for c, xb, yb in IS.new_batch_iter(seq_len, batch_size=1):
 			y = yb[0]
-			y_pred = M.predict(xb, yb)[0]
+			y_pred = M.predict(xb)[0]
 			for feature_index in range(len(y[0])):
 				yl, ypl = [], []
 				for base_index in range(len(y)):

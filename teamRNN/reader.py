@@ -9,7 +9,12 @@ from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index,
 from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam_i2f
 from teamRNN.util import irange, iterdict
 from collections import defaultdict as dd
-import re
+import re, logging, os
+logger = logging.getLogger(__name__)
+try:
+	import cPickle as pickle
+except:
+	import pickle
 
 
 known_qualities = dd(int)
@@ -61,8 +66,10 @@ class refcache:
 		return self.chrom_caches[chrom][sI:eI]
 
 class gff3_interval:
-	def __init__(self, gff3, include_chrom=False):
+	def __init__(self, gff3, include_chrom=False, force=False):
 		self.gff3 = gff3
+		self.pkl = "%s.pkl"%(gff3)
+		self.force = force
 		self._order_re = re.compile('Order=(?P<order>[^;/]+)')
 		self._sufam_re = re.compile('Superfamily=(?P<sufam>[^;]+)')
 		# creates self.interval_tree
@@ -71,20 +78,36 @@ class gff3_interval:
 		#Chr1    TAIR10  transposable_element_gene       433031  433819  .       -       .       ID=AT1G02228;Note=transposable_element_gene;Name=AT1G02228;Derives_from=AT1TE01405
 		exclude = set(['chromosome','contig','supercontig']) if include_chrom else set([])
 		self.interval_tree = dd(IntervalTree)
+		if os.path.exists(self.pkl) and not self.force:
+			with open(self.pkl,'rb') as P:
+				chrom_file_dict = pickle.load(P)
+			for chrom, pkl_file in iterdict(chrom_file_dict):
+				self.interval_tree[chrom].load(pkl_file)
+			return
 		with open(self.gff3,'r') as IF:
 			for line in filter(lambda x: x[0] != "#", IF):
 				tmp = line.rstrip('\n').split('\t')
 				chrom, strand, element, attributes = tmp[0], tmp[6], tmp[2], tmp[8]
-				if element not in exclude:
+				if element not in exclude and strand+element in gff3_f2i:
 					element_id = gff3_f2i[strand+element]
 					te_order_id = 0
 					te_sufam_id = 0
 					if element in te_feature_names:
 						te_order, te_sufam = self._extract_order_sufam(attributes)
-						te_order_id = te_order_f2i[te_order.lower()]
-						te_sufam_id = te_sufam_f2i[te_sufam.lower()]
+						try:
+							te_order_id = te_order_f2i[te_order.lower()]
+							te_sufam_id = te_sufam_f2i[te_sufam.lower()]
+						except:
+							te_order_id, te_sufam_id = 0,0
 					start, end = map(int, tmp[3:5])
 					self.interval_tree[chrom].add(start-1, end, (element_id, te_order_id, te_sufam_id))
+		logger.debug("Finished creating interval trees")
+		chrom_file_dict = {chrom:'%s.%s.pkl'%(self.gff3, chrom) for chrom in self.interval_tree}
+		for chrom, pkl_file in iterdict(chrom_file_dict):
+			self.interval_tree[chrom].dump(pkl_file)
+		with open(self.pkl, 'wb') as P:
+			pickle.dump(chrom_file_dict, P)
+		logger.debug("Finished creating pickle files")
 	def _extract_order_sufam(self, attribute_string):
 		order_match = self._order_re.search(attribute_string)
 		sufam_match = self._sufam_re.search(attribute_string)
@@ -118,51 +141,107 @@ class input_slicer:
 		self.FA.close()
 		self.M5.close()
 #>C1 dna:chromosome chromosome:BOL:C1:1:43764888:1 REF
-	def chrom_iter(self, chrom, seq_len=5):
+	def _get_region(self, chrom, cur, chrom_len, chrom_quality, seq_len):
+		coord = (chrom, cur, cur+seq_len)
+		seq = self.RC.fetch(chrom, cur, cur+seq_len)
+		# [[context_I, strand_I, c, ct, g, ga], ...]
+		meth = self.M5.fetch(chrom, cur+1, cur+seq_len)
+		assert(len(seq) == len(meth))
+		# Transform output
+		out_slice = []
+		for i in range(len(seq)):
+			# get base index
+			base = base2index[seq[i]]
+			# get location
+			frac = float(cur+1+i)/chrom_len
+			#out_row = [base, frac, CGr, nCG, CHGr, nCGH, CHHr, nCHH, Ploidy, Quality]
+			out_row = [base, frac, 0,0, 0,0, 0,0, self.ploidy, chrom_quality]
+			# get methylation info
+			cI, sI, c, ct, g, ga = meth[i]
+			if cI != -1:
+				meth_index = 2+cI*2
+				out_row[meth_index:meth_index+2] = [float(c)/ct, ct]
+			out_slice.append(out_row)
+		if self.gff3_file:
+			y_array = self.GI.fetch(chrom, cur, cur+seq_len)
+			return (coord, out_slice, y_array)
+		else:
+			return (coord, out_slice)
+	def chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=False):
 		chrom_len = self.FA.get_reference_length(chrom)
 		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
-		for cur in irange(chrom_len-seq_len+1):
-			coord = (chrom, cur, cur+seq_len)
-			seq = self.RC.fetch(chrom, cur, cur+seq_len)
-			# [[context_I, strand_I, c, ct, g, ga], ...]
-			meth = self.M5.fetch(chrom, cur+1, cur+seq_len)
-			assert(len(seq) == len(meth))
-			# Transform output
-			out_slice = []
-			for i in range(len(seq)):
-				# get base index
-				base = base2index[seq[i]]
-				# get location
-				frac = float(cur+1+i)/chrom_len
-				#out_row = [base, frac, CGr, nCG, CHGr, nCGH, CHHr, nCHH, Ploidy, Quality]
-				out_row = [base, frac, 0,0, 0,0, 0,0, self.ploidy, chrom_quality]
-				# get methylation info
-				cI, sI, c, ct, g, ga = meth[i]
-				if cI != -1:
-					meth_index = 2+cI*2
-					out_row[meth_index:meth_index+2] = [float(c)/ct, ct]
-				out_slice.append(out_row)
-			if self.gff3_file:
-				y_array = self.GI.fetch(chrom, cur, cur+seq_len)
-				yield (coord, out_slice, y_array)
-			else:
-				yield (coord, out_slice)
-	def genome_iter(self, seq_len=5):
+		for cur in irange(0, chrom_len-seq_len+1, offset):
+			yield self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len)
+		if batch_size and cur+seq_len < chrom_len:
+			#print "Grabbing last of chrom starting from %i"%(cur)
+			real_seq_len = seq_len-batch_size+1
+			#print "Calculated real seq len to be %i"%(real_seq_len)
+			cur = cur+batch_size
+			#print "New cursor at %i"%(cur)
+			yield self._get_region(chrom, cur, chrom_len, chrom_quality, chrom_len-cur)
+	def genome_iter(self, seq_len=5, offset=1, batch_size=False):
 		for chrom in sorted(self.FA.references):
-			for out in self.chrom_iter(chrom, seq_len):
+			logger.debug("Starting %s"%(chrom))
+			for out in self.chrom_iter(chrom, seq_len, offset=offset, batch_size=batch_size):
 				yield out
+			logger.debug("Finished %s"%(chrom))
+	def _list2batch_num(self, input_list, seq_len, batch_size):
+		#print "original"
+		#for i in input_list: print i
+		npa = np.array(input_list)
+		#print npa.shape, npa.strides
+		s0, s1 = npa.strides
+		n_inputs = npa.shape[1]
+		#print "seq_len = %i   batch_size = %i  strides = %s   inputs = %i"%(seq_len, batch_size, str(npa.strides), n_inputs)
+		ret = np.lib.stride_tricks.as_strided(npa, (batch_size, seq_len, n_inputs), (s0,s0,s1))
+		#for i in range(ret.shape[0]):
+		#	print "Batch",i
+		#	for j in ret[i,:,:]: print j
+		return ret
+	def _list2batch_str(self, input_list, seq_len, batch_size):
+		return [input_list[i:i+seq_len] for i in range(batch_size)]
+	def _coord2batch(self, coord, seq_len, batch_size):
+		c,s,e = coord
+		return [(c,s+i,s+i+seq_len) for i in range(batch_size)]
+	def new_batch_iter(self, seq_len=5, batch_size=50, skip=0):
+		for out in self.genome_iter(seq_len+batch_size-1, offset=batch_size, batch_size=batch_size):
+			if self.gff3_file:
+				c,x,y = out
+				#print c
+				if len(x) == seq_len+batch_size-1:
+					yb = self._list2batch_num(y, seq_len, batch_size)
+				elif len(x) >= seq_len:
+					yb = self._list2batch_num(y, seq_len, len(x)-seq_len+1)
+				else:
+					continue
+			else:
+				c,x = out
+			if len(x) == seq_len+batch_size-1:
+				cb = self._coord2batch(c, seq_len, batch_size)
+				xb = self._list2batch_num(x, seq_len, batch_size)
+			elif len(x) >= seq_len:
+				cb = self._coord2batch(c, seq_len, len(x)-seq_len+1)
+				xb = self._list2batch_num(x, seq_len, len(x)-seq_len+1)
+			else:
+				continue
+			if self.gff3_file:
+				yield (cb, xb, yb)
+			else:
+				yield (cb, xb)
 	def batch_iter(self, seq_len=5, batch_size=50):
 		c_batch = []
 		x_batch = []
 		y_batch = []
-		for out in self.genome_iter(seq_len):
+		for out in self.genome_iter(seq_len, offset=1):
 			if self.gff3_file:
 				c, x, y = out
-				y_batch.append(y)
+				if len(y) == seq_len:
+					y_batch.append(y)
 			else:
 				c, x = out
-			c_batch.append(c)
-			x_batch.append(x)
+			if len(x) == seq_len:
+				c_batch.append(c)
+				x_batch.append(x)
 			if len(c_batch) == batch_size:
 				if self.gff3_file:
 					yield (c_batch, x_batch, y_batch)

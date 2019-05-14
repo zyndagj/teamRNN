@@ -119,9 +119,11 @@ Batch Output = [batch x sequence_length x input_size]
 | 0  | 28 | bool | [CDS](https://www.vectorbase.org/glossary/cds-coding-sequence) - Coding sequence |
 | 1  | 29 | bool | [RNase_MRP_RNA](https://www.vectorbase.org/glossary/rnasemrprna) - The RNA molecule essential for the catalytic activity of RNase MRP |
 | 2  | 30 | bool | [SRP_RNA](https://www.vectorbase.org/glossary/srprna) - Signal recognition particle |
-| 3  | 31 | bool | [biological_region](http://www.sequenceontology.org/browser/current_svn/term/SO:0001411) - This is a parental feature spanning all other feature annotation on each functional element RefSeq |
-| 4  | 32 | bool | chromosome - Signifies that sequence originates from a whole chromosome |
-| 5  | 33 | bool | [contig](https://www.vectorbase.org/glossary/contig) - Signifies that the sequence originates from a contiguous region |
+| 3  | 33 | bool | antisense\_RNA |
+| 4  | 33 | bool | antisense\_lncRNA |
+| 5  | 31 | bool | [biological_region](http://www.sequenceontology.org/browser/current_svn/term/SO:0001411) - This is a parental feature spanning all other feature annotation on each functional element RefSeq |
+| 6  | 32 | bool | chromosome - Signifies that sequence originates from a whole chromosome |
+| 7  | 33 | bool | [contig](https://www.vectorbase.org/glossary/contig) - Signifies that the sequence originates from a contiguous region |
 | 6  | 34 | bool | [exon](https://www.vectorbase.org/glossary/exon) - Genomic sequences that remains in the mRNA after introns have been spliced out |
 | 7  | 35 | bool | [five_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) - Untranslated region from the 5' end of the first codon |
 | 8  | 36 | bool | [gene](https://en.wikipedia.org/wiki/Gene) - A sequence of DNA that codes for a molecule that has a function |
@@ -132,6 +134,8 @@ Batch Output = [batch x sequence_length x input_size]
 | 13 | 41 | bool | [ncRNA_gene](http://www.sequenceontology.org/miso/current_svn/term/SO:0001263) - Genes that do not encode proteins |
 | 14 | 42 | bool | [pre_miRNA](https://www.vectorbase.org/glossary/premirna) - Region that remains after Drosha processing |
 | 15 | 43 | bool | [pseudogene](https://www.vectorbase.org/glossary#Pseudogene) - A non-coding sequence similar to an active protein |
+| 18 | 44 | bool | pseudogenic\_exon |
+| 19 | 44 | bool | pseudogenic\_tRNA |
 | 16 | 44 | bool | [pseudogenic_transcript](http://www.sequenceontology.org/so_wiki/index.php/Category:SO:0000516_!_pseudogenic_transcript) - A non-functional descendant of a transcript |
 | 17 | 45 | bool | [rRNA](https://www.vectorbase.org/glossary/rrna) - Ribosomal RNA |
 | 18 | 46 | bool | region - Genomic region |

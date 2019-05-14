@@ -154,8 +154,9 @@ def train(args):
 	# Open the input
 	IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy)
 	for E in range(args.epochs):
-		for cb, xb, yb in IS.batch_iter(seq_len=args.sequence_length, batch_size=args.batch_size):
-			MSE = M.train(xb, yb)
+		for cb, xb, yb in IS.new_batch_iter(seq_len=args.sequence_length, batch_size=args.batch_size):
+			MSE, train_time = M.train(xb, yb)
+			print MSE
 		# Print MSE
 		logger.info("Finished epoch %3i - MSE = %.6f"%(E+1, MSE))
 		# Save between epochs
@@ -198,7 +199,7 @@ def classify(args):
 	# Open the output
 	OA = writer.output_aggregator(args.reference)
 	# Classify the input
-	for cb, xb in IS.batch_iter(seq_len=cached_args.sequence_length, batch_size=args.batch_size):
+	for cb, xb in IS.new_batch_iter(seq_len=cached_args.sequence_length, batch_size=args.batch_size):
 		y_pred_batch = M.predict(xb)
 		for c, x, yp in zip(cb, xb, y_pred_batch):
 			OA.vote(*c, array=yp)

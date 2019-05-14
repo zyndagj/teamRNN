@@ -34,4 +34,4 @@ dependencies:
 #  - gfortran_osx-64
   - pip:
     - pydoc-markdown
-    - Meth5py
+    - Meth5py>=0.4

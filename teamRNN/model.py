@@ -40,6 +40,9 @@ import numpy as np
 #from hmmlearn import hmm
 import tensorflow as tf
 import os, psutil
+from time import time
+import logging
+logger = logging.getLogger(__name__)
 
 def main():
 	from tensorflow.python.client import device_lib
@@ -172,7 +175,19 @@ class sleight_model:
 			# Init sess
 			self.saver = tf.train.Saver()
 			init = tf.initializers.global_variables()
-			self.sess = tf.Session()
+			tacc_nodes = {'knl':(136,2), 'skx':(48,2)}
+			if os.getenv('TACC_NODE_TYPE', False) in tacc_nodes:
+				intra, inter = tacc_nodes[os.getenv('TACC_NODE_TYPE')]
+				os.putenv('KMP_BLOCKTIME', '1')
+				os.putenv('KMP_AFFINITY', 'granularity=fine,noverbose,compact,1,0')
+				os.putenv('OMP_NUM_THREADS', str(intra))
+				config = tf.ConfigProto(intra_op_parallelism_threads=intra, \
+						inter_op_parallelism_threads=inter, \
+						allow_soft_placement=True, \
+						device_count = {'CPU': intra})
+				self.sess = tf.Session(config=config)
+			else:
+				self.sess = tf.Session()
 			self.sess.run(init)
 	def _gen_multilayer(self, cell_list):
 		if self.dropout:
@@ -195,10 +210,14 @@ class sleight_model:
 			self.saver.restore(self.sess, self.save_file)
 	def train(self, x_batch, y_batch):
 		with self.graph.as_default():
+			start_time = time()
 			opt_ret, mse = self.sess.run([self.training_op, self.loss], \
 				feed_dict={self.X:x_batch, self.Y:y_batch, \
 						self.keep_p:self.training_keep})
-		return mse
+			end_time = time()
+			total_time = end_time - start_time
+			logger.debug("Finished training batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
+		return (mse, total_time)
 	def predict(self, x_batch, render=False):
 		with self.graph.as_default():
 			# The shape is now probably wrong for this

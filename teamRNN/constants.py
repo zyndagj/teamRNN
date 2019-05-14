@@ -36,7 +36,7 @@
 ###############################################################################
 
 # Pulled from all GFF3 files
-features = ['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene', 'transposon_fragment']
+features = ['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'antisense_RNA', 'antisense_lncRNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_exon', 'pseudogenic_tRNA', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene', 'transposon_fragment', 'uORF',]
 contexts = ('CG','CHG','CHH')
 strands = ('+', '-')
 
