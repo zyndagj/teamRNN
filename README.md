@@ -116,43 +116,43 @@ Batch Output = [batch x sequence_length x input_size]
 
 | +Index | -Index | Data type | Description |
 |--------|--------|-----------|-------------|
-| 0  | 28 | bool | [CDS](https://www.vectorbase.org/glossary/cds-coding-sequence) - Coding sequence |
-| 1  | 29 | bool | [RNase_MRP_RNA](https://www.vectorbase.org/glossary/rnasemrprna) - The RNA molecule essential for the catalytic activity of RNase MRP |
-| 2  | 30 | bool | [SRP_RNA](https://www.vectorbase.org/glossary/srprna) - Signal recognition particle |
-| 3  | 33 | bool | antisense\_RNA |
-| 4  | 33 | bool | antisense\_lncRNA |
-| 5  | 31 | bool | [biological_region](http://www.sequenceontology.org/browser/current_svn/term/SO:0001411) - This is a parental feature spanning all other feature annotation on each functional element RefSeq |
-| 6  | 32 | bool | chromosome - Signifies that sequence originates from a whole chromosome |
-| 7  | 33 | bool | [contig](https://www.vectorbase.org/glossary/contig) - Signifies that the sequence originates from a contiguous region |
-| 6  | 34 | bool | [exon](https://www.vectorbase.org/glossary/exon) - Genomic sequences that remains in the mRNA after introns have been spliced out |
-| 7  | 35 | bool | [five_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) - Untranslated region from the 5' end of the first codon |
-| 8  | 36 | bool | [gene](https://en.wikipedia.org/wiki/Gene) - A sequence of DNA that codes for a molecule that has a function |
-| 9  | 37 | bool | [lnc_RNA](https://www.vectorbase.org/glossary/lncrna) - Encodes a long non-coding RNA |
-| 10 | 38 | bool | [mRNA](https://en.wikipedia.org/wiki/Messenger_RNA) - Messenger RNA |
-| 11 | 39 | bool | [miRNA](https://www.vectorbase.org/glossary/mirna) - MicroRNA |
-| 12 | 40 | bool | [ncRNA](https://www.vectorbase.org/glossary/ncrna-non-coding-rna) - Non-coding RNA |
-| 13 | 41 | bool | [ncRNA_gene](http://www.sequenceontology.org/miso/current_svn/term/SO:0001263) - Genes that do not encode proteins |
-| 14 | 42 | bool | [pre_miRNA](https://www.vectorbase.org/glossary/premirna) - Region that remains after Drosha processing |
-| 15 | 43 | bool | [pseudogene](https://www.vectorbase.org/glossary#Pseudogene) - A non-coding sequence similar to an active protein |
-| 18 | 44 | bool | pseudogenic\_exon |
-| 19 | 44 | bool | pseudogenic\_tRNA |
-| 16 | 44 | bool | [pseudogenic_transcript](http://www.sequenceontology.org/so_wiki/index.php/Category:SO:0000516_!_pseudogenic_transcript) - A non-functional descendant of a transcript |
-| 17 | 45 | bool | [rRNA](https://www.vectorbase.org/glossary/rrna) - Ribosomal RNA |
-| 18 | 46 | bool | region - Genomic region |
-| 19 | 47 | bool | [snRNA](https://www.vectorbase.org/glossary/snrna) - Small nuclear RNA molecule involved in pre-mRNA splicing and processing |
-| 20 | 48 | bool | [snoRNA](https://www.vectorbase.org/glossary/snorna) - Small nucleolar RNA |
-| 21 | 49 | bool | [supercontig](https://www.vectorbase.org/glossary/supercontigs) - Several sequence contigs combined into scaffolds |
-| 22 | 50 | bool | [tRNA](https://www.vectorbase.org/glossary/trna) - Transfer RNA |
-| 23 | 51 | bool | [three_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) - Untranslated region from the 3' end of the last codon |
-| 24 | 52 | bool | [tmRNA](https://en.wikipedia.org/wiki/Transfer-messenger_RNA) - Transfer messenger RNA |
-| 25 | 53 | bool | [transposable_element](https://en.wikipedia.org/wiki/Transposable_element) - A DNA sequence that can change its position in a genome |
-| 26 | 54 | bool | [transposable_element_gene](https://rgd.mcw.edu/rgdweb/ontology/view.html?acc_id=SO:0000111&offset=230) - A gene encoded within a transposable element |
-| 27 | 55 | bool | [transposon_fragment](http://www.sequenceontology.org/browser/release_2.5/term/SO:0001054) - A portion of a transposon, interrupted by the insertion of another element |
+| 0  | 32 | bool | [CDS](https://www.vectorbase.org/glossary/cds-coding-sequence) - Coding sequence |
+| 1  | 33 | bool | [RNase_MRP_RNA](https://www.vectorbase.org/glossary/rnasemrprna) - The RNA molecule essential for the catalytic activity of RNase MRP |
+| 2  | 34 | bool | [SRP_RNA](https://www.vectorbase.org/glossary/srprna) - Signal recognition particle |
+| 3  | 35 | bool | antisense\_RNA |
+| 4  | 36 | bool | antisense\_lncRNA |
+| 5  | 37 | bool | [biological_region](http://www.sequenceontology.org/browser/current_svn/term/SO:0001411) - This is a parental feature spanning all other feature annotation on each functional element RefSeq |
+| 6  | 38 | bool | chromosome - Signifies that sequence originates from a whole chromosome |
+| 7  | 39 | bool | [contig](https://www.vectorbase.org/glossary/contig) - Signifies that the sequence originates from a contiguous region |
+| 8  | 40 | bool | [exon](https://www.vectorbase.org/glossary/exon) - Genomic sequences that remains in the mRNA after introns have been spliced out |
+| 9  | 41 | bool | [five_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) - Untranslated region from the 5' end of the first codon |
+| 10 | 42 | bool | [gene](https://en.wikipedia.org/wiki/Gene) - A sequence of DNA that codes for a molecule that has a function |
+| 11 | 43 | bool | [lnc_RNA](https://www.vectorbase.org/glossary/lncrna) - Encodes a long non-coding RNA |
+| 12 | 44 | bool | [mRNA](https://en.wikipedia.org/wiki/Messenger_RNA) - Messenger RNA |
+| 13 | 45 | bool | [miRNA](https://www.vectorbase.org/glossary/mirna) - MicroRNA |
+| 14 | 46 | bool | [ncRNA](https://www.vectorbase.org/glossary/ncrna-non-coding-rna) - Non-coding RNA |
+| 15 | 47 | bool | [ncRNA_gene](http://www.sequenceontology.org/miso/current_svn/term/SO:0001263) - Genes that do not encode proteins |
+| 16 | 48 | bool | [pre_miRNA](https://www.vectorbase.org/glossary/premirna) - Region that remains after Drosha processing |
+| 17 | 49 | bool | [pseudogene](https://www.vectorbase.org/glossary#Pseudogene) - A non-coding sequence similar to an active protein |
+| 18 | 50 | bool | pseudogenic\_exon |
+| 19 | 51 | bool | pseudogenic\_tRNA |
+| 20 | 52 | bool | [pseudogenic_transcript](http://www.sequenceontology.org/so_wiki/index.php/Category:SO:0000516_!_pseudogenic_transcript) - A non-functional descendant of a transcript |
+| 21 | 53 | bool | [rRNA](https://www.vectorbase.org/glossary/rrna) - Ribosomal RNA |
+| 22 | 54 | bool | region - Genomic region |
+| 23 | 55 | bool | [snRNA](https://www.vectorbase.org/glossary/snrna) - Small nuclear RNA molecule involved in pre-mRNA splicing and processing |
+| 24 | 56 | bool | [snoRNA](https://www.vectorbase.org/glossary/snorna) - Small nucleolar RNA |
+| 25 | 57 | bool | [supercontig](https://www.vectorbase.org/glossary/supercontigs) - Several sequence contigs combined into scaffolds |
+| 26 | 58 | bool | [tRNA](https://www.vectorbase.org/glossary/trna) - Transfer RNA |
+| 27 | 59 | bool | [three_prime_UTR](https://www.vectorbase.org/glossary/utr-untranslated-region) - Untranslated region from the 3' end of the last codon |
+| 28 | 60 | bool | [tmRNA](https://en.wikipedia.org/wiki/Transfer-messenger_RNA) - Transfer messenger RNA |
+| 29 | 61 | bool | [transposable_element](https://en.wikipedia.org/wiki/Transposable_element) - A DNA sequence that can change its position in a genome |
+| 30 | 62 | bool | [transposable_element_gene](https://rgd.mcw.edu/rgdweb/ontology/view.html?acc_id=SO:0000111&offset=230) - A gene encoded within a transposable element |
+| 31 | 63 | bool | [transposon_fragment](http://www.sequenceontology.org/browser/release_2.5/term/SO:0001054) - A portion of a transposon, interrupted by the insertion of another element |
 
 | Index | Data type | Description |
 |-------|-----------|-------------|
-| 56 | uint-8 | transposable_element Order |
-| 57 | uint-8 | transposable_element Superfamily |
+| 64 | uint-8 | transposable_element Order |
+| 65 | uint-8 | transposable_element Superfamily |
 
 Mapping rules for *A. thaliana*:
 

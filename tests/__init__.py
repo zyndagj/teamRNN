@@ -29,7 +29,7 @@ class TestReader(unittest.TestCase):
 		self.mr1 = os.path.join(tpath, 'test_meth.txt')
 		self.n_inputs = 10
 		self.n_outputs = len(constants.gff3_f2i)+2
-		self.test_model = True
+		self.test_model = False
 		self.n_epoch = 500
 	def tearDown(self):
 		## Runs after every test function ##
@@ -59,6 +59,10 @@ class TestReader(unittest.TestCase):
 		FA = FastaFile(self.fa)
 		for chrom in FA.references:
 			self.assertEqual(RC.chrom_qualities[chrom], 3)
+	def test_chrom_iter(self):
+		I = reader.input_slicer(self.fa, self.mr1)
+		CL = [c for c, x in I.chrom_iter('Chr1', seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1)]
+		print CL
 	def test_input_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		IL = list(I.genome_iter())
