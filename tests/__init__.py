@@ -29,8 +29,9 @@ class TestReader(unittest.TestCase):
 		self.mr1 = os.path.join(tpath, 'test_meth.txt')
 		self.n_inputs = 10
 		self.n_outputs = len(constants.gff3_f2i)+2
-		self.test_model = False
-		self.n_epoch = 500
+		self.test_model = True
+		self.n_epoch = 75
+		self.learning_rate = 0.01
 	def tearDown(self):
 		## Runs after every test function ##
 		# Wipe log
@@ -61,8 +62,22 @@ class TestReader(unittest.TestCase):
 			self.assertEqual(RC.chrom_qualities[chrom], 3)
 	def test_chrom_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
-		CL = [c for c, x in I.chrom_iter('Chr1', seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1)]
-		print CL
+		chrom_len = 20
+		for seq_len in (5,6):
+			for offset in (1,3):
+				for batch_size in (1,2):
+					for hvd_size in (1,2):
+						for hvd_rank in range(0,hvd_size):
+							CL = [c for c,x in I.chrom_iter('Chr1', seq_len, \
+								offset, batch_size, hvd_rank, hvd_size)]
+							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
+							#print CL
+							EL = [('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)) for i \
+								in range(hvd_rank*(offset*batch_size), \
+									chrom_len-seq_len+1, \
+									hvd_size*offset*batch_size)]
+							#print EL
+							self.assertEqual(CL, EL)
 	def test_input_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		IL = list(I.genome_iter())
@@ -259,7 +274,7 @@ class TestReader(unittest.TestCase):
 		for epoch in range(3):
 			IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 			for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
-				mse = [m.train(xb, yb) for m in models]
+				mse = [m.train(xb, yb)[0] for m in models]
 				self.assertEqual(mse[0], mse[1])
 	def test_model_effect(self):
 		if not self.test_model: return
@@ -284,7 +299,7 @@ class TestReader(unittest.TestCase):
 		for epoch in range(3):
 			IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 			for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
-				mse = [m.train(xb, yb) for m in models]
+				mse = [m.train(xb, yb)[0] for m in models]
 				# Should be qual
 				self.assertEqual(mse[0], mse[1])
 				self.assertEqual(mse[0], mse[8])
@@ -312,7 +327,8 @@ class TestReader(unittest.TestCase):
 		batch_size = 20-seq_len+1
 		model.reset_graph()
 		# create models
-		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, bidirectional=True, save_dir='test_model')
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, \
+			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model')
 		# train models
 		ts = time()
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
@@ -364,7 +380,8 @@ class TestReader(unittest.TestCase):
 		batch_size = 20-seq_len+1
 		model.reset_graph()
 		# create models
-		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, bidirectional=True, save_dir='test_model')
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, \
+			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model')
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		M.restore()
 		# Vote
@@ -407,6 +424,7 @@ class TestReader(unittest.TestCase):
 			'train', \
 			'-A', self.gff3, \
 			'-E', str(self.n_epoch), \
+			'-r', str(self.learning_rate), \
 			'-L', '15', \
 			'-b', '-f', \
 			'-C', 'rnn']
@@ -415,7 +433,7 @@ class TestReader(unittest.TestCase):
 		output = logStream.getvalue()
 		splitOut = output.split('\n')
 		self.assertTrue('Done' in splitOut[-2])
-		self.assertTrue(os.path.exists('test_cli/plain_i15x10_birnn1x100_learn0.001_pF_sF_d0.95_rF_h0.ckpt.index'))
+		self.assertTrue(os.path.exists('test_cli/plain_i15x10_birnn1x100_learn%.3f_pF_sF_d0.95_rF_h0.ckpt.index'%(self.learning_rate)))
 		self.assertTrue(os.path.exists('test_cli/config.pkl'))
 	def test_train_cli_02(self):
 		if not self.test_model: return
@@ -431,6 +449,7 @@ class TestReader(unittest.TestCase):
 			teamRNN.main()
 		output = logStream.getvalue()
 		splitOut = output.split('\n')
+		#for so in splitOut: print so
 		self.assertTrue('Done' in splitOut[-2])
 		self.assertTrue(os.path.exists('test_cli/out.gff3'))
 		F1 = open(self.gff3,'r')

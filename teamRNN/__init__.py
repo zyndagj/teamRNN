@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/01/2019
+# Last Modified: 05/15/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -57,6 +57,7 @@ def main():
 	parser.add_argument('-D', '--directory', metavar="DIR", help='Model directory [%(default)s]', default='model', type=str)
 	parser.add_argument('-N', '--name', metavar="STR", help='Name of model to use [%(default)s]', default='default', type=str)
 	parser.add_argument('-M', '--methratio', metavar='FILE', type=fC.methratio, help='Methratio file used as input', required=True)
+	parser.add_argument('-o', '--offset', metavar='INT', help='Number of bases to slide between windows [%(default)s]', default=1, type=int)
 	parser.add_argument('-B', '--batch_size', metavar='INT', help='Batch size [%(default)s]', default=100, type=int)
 	parser.add_argument('-Q', '--quality', metavar='INT', help='Input assembly quality [%(default)s]', default=-1, type=int)
 	parser.add_argument('-P', '--ploidy', metavar='INT', help='Input chromosome ploidy [%(default)s]', default=2, type=int)
@@ -154,9 +155,9 @@ def train(args):
 	# Open the input
 	IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy)
 	for E in range(args.epochs):
-		for cb, xb, yb in IS.new_batch_iter(seq_len=args.sequence_length, batch_size=args.batch_size):
+		for cb, xb, yb in IS.new_batch_iter(seq_len=args.sequence_length, offset=args.offset, batch_size=args.batch_size):
 			MSE, train_time = M.train(xb, yb)
-			print MSE
+			logger.debug("Finished batch %s:%i-%i   MSE = %.2f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
 		# Print MSE
 		logger.info("Finished epoch %3i - MSE = %.6f"%(E+1, MSE))
 		# Save between epochs
@@ -199,7 +200,7 @@ def classify(args):
 	# Open the output
 	OA = writer.output_aggregator(args.reference)
 	# Classify the input
-	for cb, xb in IS.new_batch_iter(seq_len=cached_args.sequence_length, batch_size=args.batch_size):
+	for cb, xb in IS.new_batch_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=args.batch_size):
 		y_pred_batch = M.predict(xb)
 		for c, x, yp in zip(cb, xb, y_pred_batch):
 			OA.vote(*c, array=yp)

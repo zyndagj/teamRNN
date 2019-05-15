@@ -170,14 +170,24 @@ class input_slicer:
 	def chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1):
 		chrom_len = self.FA.get_reference_length(chrom)
 		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
-		for cur in irange(hvd_rank*(offset-1), chrom_len-seq_len+1, offset*hvd_size):
-			yield self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len)
-		if batch_size and cur+seq_len < chrom_len:
-			cur = cur+batch_size+offset*hvd_size
-			#print "New cursor at %i"%(cur)
-			if cur < chrom_len:
-				yield self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len=chrom_len-cur)
-	def genome_iter(self, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1):
+		full_len = seq_len+(batch_size-1)*offset
+		start_range = offset * batch_size * hvd_rank
+		stop_range = chrom_len - seq_len + 1
+		step_size = offset * batch_size * hvd_size
+		for cur in irange(start_range, stop_range, step_size):
+			cur_len = min(full_len, chrom_len-cur)
+			yield self._get_region(chrom, cur, chrom_len, chrom_quality, cur_len)
+#		if batch_size > 1 and cur+full_len+offset < chrom_len:
+#			print cur, full_len, cur+full_len, chrom_len
+#			print "here"
+#			cur += offset*batch_size*hvd_size
+#			print cur, cur+full_len, chrom_len, cur+seq_len
+#			#print "New cursor at %i"%(cur)
+#			if cur+seq_len < chrom_len and cur+full_len > chrom_len:
+#				yield self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len=chrom_len-cur)
+#		else:
+#			print cur, full_len, cur+full_len, chrom_len
+	def genome_iter(self, seq_len=5, offset=1, batch_size=1, hvd_rank=0, hvd_size=1):
 		for chrom in sorted(self.FA.references):
 			logger.debug("Starting %s"%(chrom))
 			for out in self.chrom_iter(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size):
@@ -201,8 +211,8 @@ class input_slicer:
 	def _coord2batch(self, coord, seq_len, batch_size):
 		c,s,e = coord
 		return [(c,s+i,s+i+seq_len) for i in range(batch_size)]
-	def new_batch_iter(self, seq_len=5, batch_size=50, skip=0, rank=0, size=1):
-		for out in self.genome_iter(seq_len+batch_size-1, offset=batch_size, batch_size=batch_size):
+	def new_batch_iter(self, seq_len=5, offset=1, batch_size=50, hvd_rank=0, hvd_size=1):
+		for out in self.genome_iter(seq_len, offset, batch_size, hvd_rank, hvd_size):
 			if self.gff3_file:
 				c,x,y = out
 				#print c
