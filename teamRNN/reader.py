@@ -15,6 +15,11 @@ try:
 	import cPickle as pickle
 except:
 	import pickle
+try:
+	import horovod.tensorflow as hvd
+	import tensorflow as tf
+except:
+	hvd = False
 
 
 known_qualities = dd(int)
@@ -177,21 +182,35 @@ class input_slicer:
 		for cur in irange(start_range, stop_range, step_size):
 			cur_len = min(full_len, chrom_len-cur)
 			yield self._get_region(chrom, cur, chrom_len, chrom_quality, cur_len)
-#		if batch_size > 1 and cur+full_len+offset < chrom_len:
-#			print cur, full_len, cur+full_len, chrom_len
-#			print "here"
-#			cur += offset*batch_size*hvd_size
-#			print cur, cur+full_len, chrom_len, cur+seq_len
-#			#print "New cursor at %i"%(cur)
-#			if cur+seq_len < chrom_len and cur+full_len > chrom_len:
-#				yield self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len=chrom_len-cur)
-#		else:
-#			print cur, full_len, cur+full_len, chrom_len
+	def chrom_iter_len(self, chrom, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1):
+		chrom_len = self.FA.get_reference_length(chrom)
+		full_len = seq_len+(batch_size-1)*offset
+		start_range = offset * batch_size * hvd_rank
+		stop_range = chrom_len - seq_len + 1
+		step_size = offset * batch_size * hvd_size
+		return (stop_range - start_range - 1) / step_size + 1
 	def genome_iter(self, seq_len=5, offset=1, batch_size=1, hvd_rank=0, hvd_size=1):
 		for chrom in sorted(self.FA.references):
 			logger.debug("Starting %s"%(chrom))
+			if hvd and hvd_size > 1:
+				n_batches = self.chrom_iter_len(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size)
+				#logger.debug("I'm going to have %i units of work for chromosome %s"%(n_batches, chrom))
+				n_batches_tensor = tf.ones([1])*n_batches
+				gather = hvd.allgather(n_batches_tensor)
+				with tf.Session() as sess:
+					n_batches_list = list(sess.run(gather))
+					assert(len(n_batches_list) == hvd_size)
+				if hvd_rank == 0:
+					logger.debug("All work loads %s"%(str(n_batches_list)))
+				max_batches = int(max(n_batches_list))
 			for out in self.chrom_iter(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size):
 				yield out
+			if hvd and hvd_size > 1:
+				for i, out in enumerate(self.chrom_iter(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size)):
+					if i < max_batches-n_batches:
+						yield out
+					else:
+						break
 			logger.debug("Finished %s"%(chrom))
 	def _list2batch_num(self, input_list, seq_len, batch_size):
 		#print "original"

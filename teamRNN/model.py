@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/01/2019
+# Last Modified: 05/16/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -37,9 +37,16 @@
 
 #!pip install hmmlearn &> /dev/null
 import numpy as np
-#from hmmlearn import hmm
-import tensorflow as tf
 import os, psutil
+#from hmmlearn import hmm
+os.putenv('TF_CPP_MIN_LOG_LEVEL','3')
+import tensorflow as tf
+tf.logging.set_verbosity(tf.logging.ERROR)
+try:
+	import horovod.tensorflow as hvd
+	hvd.init()
+except:
+	hvd = False
 from time import time
 import logging
 logger = logging.getLogger(__name__)
@@ -170,13 +177,22 @@ class sleight_model:
 				self.loss = tf.add_n([self.rec_loss] + self.reg_loss)
 			else:
 				self.loss = tf.reduce_mean(tf.square(self.logits - self.Y))
-			self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+			if hvd:
+				self.optimizer = tf.train.AdamOptimizer(\
+					learning_rate=self.learning_rate*hvd.size())
+				self.optimizer = hvd.DistributedOptimizer(self.optimizer)
+			else:
+				self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
 			self.training_op = self.optimizer.minimize(self.loss)
 			# Init sess
+			logger.debug("Initializing session")
 			self.saver = tf.train.Saver()
 			init = tf.initializers.global_variables()
+			if hvd:
+				self.bcast = hvd.broadcast_global_variables(0)
 			tacc_nodes = {'knl':(136,2), 'skx':(48,2)}
 			if os.getenv('TACC_NODE_TYPE', False) in tacc_nodes:
+				logger.debug("Using config for TACC %s node"%(os.getenv('TACC_NODE_TYPE')))
 				intra, inter = tacc_nodes[os.getenv('TACC_NODE_TYPE')]
 				os.putenv('KMP_BLOCKTIME', '1')
 				os.putenv('KMP_AFFINITY', 'granularity=fine,noverbose,compact,1,0')
@@ -187,8 +203,13 @@ class sleight_model:
 						device_count = {'CPU': intra})
 				self.sess = tf.Session(config=config)
 			else:
+				logger.debug("Using default config")
 				self.sess = tf.Session()
-			self.sess.run(init)
+			if hvd:
+				self.sess.run(init)
+				self.sess.run(self.bcast)
+			else:
+				self.sess.run(init)
 	def _gen_multilayer(self, cell_list):
 		if self.dropout:
 			return tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(cell, input_keep_prob=self.keep_p) for cell in cell_list])
@@ -201,16 +222,20 @@ class sleight_model:
 		else:
 			return [cell_func(num_units=self.n_neurons) for i in range(self.n_layers)]
 	def save(self):
-		with self.graph.as_default():
-			if not os.path.exists(self.save_dir):
-				os.makedirs(self.save_dir)
-			self.saver.save(self.sess, self.save_file)
+		if not hvd or (hvd and hvd.rank() == 0):
+			with self.graph.as_default():
+				if not os.path.exists(self.save_dir):
+					os.makedirs(self.save_dir)
+				self.saver.save(self.sess, self.save_file)
 	def restore(self):
 		with self.graph.as_default():
 			self.saver.restore(self.sess, self.save_file)
+			self.sess.run(self.bcast)
+			logger.debug("Restored model from %s"%(self.save_file))
 	def train(self, x_batch, y_batch):
 		with self.graph.as_default():
 			start_time = time()
+			#self.sess.run(self.bcast)
 			opt_ret, mse = self.sess.run([self.training_op, self.loss], \
 				feed_dict={self.X:x_batch, self.Y:y_batch, \
 						self.keep_p:self.training_keep})

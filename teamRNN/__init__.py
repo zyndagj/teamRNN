@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/15/2019
+# Last Modified: 05/16/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -39,6 +39,11 @@ import sys, os, argparse
 from glob import glob
 import pickle
 import logging
+try:
+	import horovod.tensorflow as hvd
+	hvd.init()
+except:
+	hvd = False
 logger = logging.getLogger(__name__)
 FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)15s] %(message)s"
 from teamRNN import reader, constants, writer, model
@@ -100,6 +105,11 @@ def main():
 	##############################################
 	args = parser.parse_args()
 	args.config = os.path.join(args.directory, 'config.pkl')
+	##############################################
+	# Check for rank and size
+	##############################################
+	args.hvd_rank = hvd.rank() if hvd else 0
+	args.hvd_size = hvd.size() if hvd else 1
 	################################
 	# Configure logging
 	################################
@@ -122,9 +132,11 @@ def train(args):
 			cached_args = pickle.load(CF)
 	else:
 		# Save the parameters
-		if not os.path.exists(args.directory): os.makedirs(args.directory)
-		with open(args.config, 'wb') as CF:
-			pickle.dump(args, CF)
+		if not hvd or (hvd and hvd.rank() == 0):
+			logger.info("Saving model parameters to %s"%(args.config))
+			if not os.path.exists(args.directory): os.makedirs(args.directory)
+			with open(args.config, 'wb') as CF:
+				pickle.dump(args, CF)
 		cached_args = args
 	# Check dropout
 	assert(cached_args.dropout >= 0)
@@ -155,14 +167,29 @@ def train(args):
 	# Open the input
 	IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy)
 	for E in range(args.epochs):
-		for cb, xb, yb in IS.new_batch_iter(seq_len=args.sequence_length, offset=args.offset, batch_size=args.batch_size):
+		cb_buffer, xb_buffer, yb_buffer = [], [], []
+		count = 0
+		for cb, xb, yb in IS.new_batch_iter(seq_len=args.sequence_length, offset=args.offset, batch_size=args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+			count += 1
+			#logger.info("Got region %i - %s"%(count, str(cb)))
+			# horovod requires that batch sizes be the same
+			if hvd and len(cb) != args.batch_size:
+				repeat = int(np.ceil(float(args.batch_size)/xb.shape[0]))
+				xb = np.tile(xb, (repeat, 1, 1))[:args.batch_size,:,:]
+				yb = np.tile(yb, (repeat, 1, 1))[:args.batch_size,:,:]
+			#logger.info("Training on %s with data shapes %s %s"%(str(cb), str(xb.shape), str(yb.shape)))
 			MSE, train_time = M.train(xb, yb)
-			logger.debug("Finished batch %s:%i-%i   MSE = %.2f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
+			if not hvd or (hvd and hvd.rank() == 0):
+				logger.debug("Finished batch %s:%i-%i   MSE = %.3f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
+			else:
+				logger.debug("Finished batch %s:%i-%i   MSE = %.3f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
 		# Print MSE
-		logger.info("Finished epoch %3i - MSE = %.6f"%(E+1, MSE))
-		# Save between epochs
-		M.save()
-	logger.info("Done")
+		if not hvd or (hvd and hvd.rank() == 0):
+			logger.info("Finished epoch %3i - MSE = %.6f"%(E+1, MSE))
+			# Save between epochs
+			M.save()
+	if not hvd or (hvd and hvd.rank() == 0):
+		logger.info("Done")
 
 def classify(args):
 	logger.debug("Model will classify the given input")
@@ -170,7 +197,8 @@ def classify(args):
 	if not os.path.exists(args.config):
 		logger.error("Could not find previous model configuration")
 		sys.exit()
-	logger.info("Loading model parameters from %s"%(args.config))
+	if not hvd or (hvd and hvd.rank() == 0):
+		logger.info("Loading model parameters from %s"%(args.config))
 	with open(args.config, 'rb') as CF:
 		cached_args = pickle.load(CF)
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
@@ -200,14 +228,16 @@ def classify(args):
 	# Open the output
 	OA = writer.output_aggregator(args.reference)
 	# Classify the input
-	for cb, xb in IS.new_batch_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=args.batch_size):
+	for cb, xb in IS.new_batch_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
 		y_pred_batch = M.predict(xb)
 		for c, x, yp in zip(cb, xb, y_pred_batch):
 			OA.vote(*c, array=yp)
-	logger.info("Features need %.2f of the votes to be output"%(args.threshold))
-	logger.info("Writing %s"%(args.output))
+	if not hvd or (hvd and hvd.rank() == 0):
+		logger.info("Features need %.2f of the votes to be output"%(args.threshold))
+		logger.info("Writing %s"%(args.output))
 	OA.write_gff3(out_file=args.output, threshold=args.threshold)
-	logger.info("Done")
+	if not hvd or (hvd and hvd.rank() == 0):
+		logger.info("Done")
 
 class fileCheck:
 	def check(self, file, exts):

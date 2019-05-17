@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 04/23/2019
+# Last Modified: 05/16/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -150,7 +150,7 @@ class output_aggregator:
 				total_feature_count += 1
 		if out_file:
 			with open(out_file,'w') as OF:
-				OF.write('\n'.join(out_gff3))
+				OF.write('\n'.join(out_gff3)+'\n')
 		else:
 			return out_gff3
 
