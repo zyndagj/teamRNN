@@ -44,7 +44,7 @@ import tensorflow as tf
 tf.logging.set_verbosity(tf.logging.ERROR)
 try:
 	import horovod.tensorflow as hvd
-	hvd.init()
+	#hvd.init()
 except:
 	hvd = False
 from time import time
@@ -126,6 +126,7 @@ class sleight_model:
 			self.save_dir = os.path.join(os.getcwd(), save_dir)
 		self.save_file = os.path.join(self.save_dir, '%s.ckpt'%(self.param_name))
 		self.graph = tf.Graph() # Init graph
+		logger.debug("Created graph")
 		######################################
 		# Build graph
 		######################################
@@ -135,29 +136,36 @@ class sleight_model:
 			self.X = tf.placeholder(tf.float32, [None, self.n_steps, self.n_inputs])
 			self.Y = tf.placeholder(tf.float32, [None, self.n_steps, self.n_outputs])
 			self.keep_p = tf.placeholder_with_default(1.0, shape=())
+			logger.debug("Created placeholders")
 			# Define cells
 			if self.bidirectional:
 				self.cells_f = self._gen_cells()
 				self.multi_layer_cell_f = self._gen_multilayer(self.cells_f)
 				self.cells_r = self._gen_cells()
 				self.multi_layer_cell_r = self._gen_multilayer(self.cells_r)
+				logger.debug("Created bidirectional multi layer cells")
 				self.bi_outputs, self.bi_states	= tf.nn.bidirectional_dynamic_rnn(
 						cell_fw=self.multi_layer_cell_f,
 						cell_bw=self.multi_layer_cell_r,
 						dtype=tf.float32, inputs=self.X)
+				logger.debug("Created bidirectional dynamic rnn")
 				self.outputs_concat = tf.concat(self.bi_outputs, 2)
 				self.outputs_reshape = tf.reshape(self.outputs_concat, [-1, 2*self.n_neurons])
+				logger.debug("Reshaped outputs")
 				self.outputs_combined = tf.contrib.layers.fully_connected(self.outputs_reshape, self.n_outputs, activation_fn=None)
 				self.outputs = tf.reshape(self.outputs_combined, [-1, self.n_steps, self.n_outputs])
+				logger.debug("Created bidirectional outputs")
 			else:
 				self.cells = self._gen_cells()
 				self.multi_layer_cell = self._gen_multilayer(self.cells)
+				logger.debug("Created recurrent layers")
 				# Generate outputs
 				if self.stacked:
 					self.rnn_outputs, self.states = tf.nn.dynamic_rnn(self.multi_layer_cell, self.X, dtype=tf.float32)
 					self.stacked_rnn_outputs = tf.reshape(self.rnn_outputs, [-1, self.n_neurons])
 					self.stacked_outputs = tf.contrib.layers.fully_connected(self.stacked_rnn_outputs, self.n_outputs, activation_fn=None)
 					self.outputs = tf.reshape(self.stacked_outputs, [-1, self.n_steps, self.n_outputs])
+					logger.debug("Created stacked output")
 				else:
 					self.wrapped_cell = tf.contrib.rnn.OutputProjectionWrapper(self.multi_layer_cell, output_size=self.n_outputs)
 					self.outputs, self.states = tf.nn.dynamic_rnn(self.wrapped_cell, self.X, dtype=tf.float32)
@@ -191,6 +199,7 @@ class sleight_model:
 			if hvd:
 				self.bcast = hvd.broadcast_global_variables(0)
 			tacc_nodes = {'knl':(136,2), 'skx':(48,2)}
+			#tacc_nodes = {'knl':(8,1), 'skx':(48,2)}
 			if os.getenv('TACC_NODE_TYPE', False) in tacc_nodes:
 				logger.debug("Using config for TACC %s node"%(os.getenv('TACC_NODE_TYPE')))
 				intra, inter = tacc_nodes[os.getenv('TACC_NODE_TYPE')]
@@ -207,6 +216,7 @@ class sleight_model:
 				self.sess = tf.Session()
 			if hvd:
 				self.sess.run(init)
+				logger.debug("Broadcasting variables")
 				self.sess.run(self.bcast)
 			else:
 				self.sess.run(init)
@@ -221,6 +231,10 @@ class sleight_model:
 			return [cell_func(num_units=self.n_neurons, use_peepholes=True) for i in range(self.n_layers)]
 		else:
 			return [cell_func(num_units=self.n_neurons) for i in range(self.n_layers)]
+	def __del__(self):
+		logger.debug("Closing session")
+		self.sess.close()
+		logger.debug("Session closed")
 	def save(self):
 		if not hvd or (hvd and hvd.rank() == 0):
 			with self.graph.as_default():

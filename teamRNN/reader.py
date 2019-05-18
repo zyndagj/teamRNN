@@ -2,7 +2,7 @@
 
 from pysam import FastaFile
 from Meth5py import Meth5py
-import subprocess as sp
+#import subprocess as sp
 import numpy as np
 from quicksect import IntervalTree
 from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index, te_feature_names
@@ -15,12 +15,6 @@ try:
 	import cPickle as pickle
 except:
 	import pickle
-try:
-	import horovod.tensorflow as hvd
-	import tensorflow as tf
-except:
-	hvd = False
-
 
 known_qualities = dd(int)
 known_qualities.update({'dna:chromosome':3, 'dna:contig':1, 'dna:scaffold':2, 'dna:supercontig':1})
@@ -65,7 +59,7 @@ class refcache:
 			assert(pos2 <= self.chrom_lens[chrom])
 			self.start[chrom] = pos
 			self.end[chrom] = pos+self.cacheSize
-			self.chrom_caches[chrom] = self.FA.fetch(chrom, self.start, self.end)
+			self.chrom_caches[chrom] = self.FA.fetch(chrom, self.start[chrom], self.end[chrom])
 		sI = pos-self.start[chrom]
 		eI = pos2-self.start[chrom]
 		return self.chrom_caches[chrom][sI:eI]
@@ -147,6 +141,7 @@ class input_slicer:
 		self.M5.close()
 #>C1 dna:chromosome chromosome:BOL:C1:1:43764888:1 REF
 	def _get_region(self, chrom, cur, chrom_len, chrom_quality, seq_len):
+		logger.debug("Fetching %s:%i-%i"%(chrom, cur, cur+seq_len))
 		coord = (chrom, cur, cur+seq_len)
 		seq = self.RC.fetch(chrom, cur, cur+seq_len)
 		# [[context_I, strand_I, c, ct, g, ga], ...]
@@ -192,20 +187,16 @@ class input_slicer:
 	def genome_iter(self, seq_len=5, offset=1, batch_size=1, hvd_rank=0, hvd_size=1):
 		for chrom in sorted(self.FA.references):
 			logger.debug("Starting %s"%(chrom))
-			if hvd and hvd_size > 1:
+			if hvd_size > 1:
 				n_batches = self.chrom_iter_len(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size)
-				#logger.debug("I'm going to have %i units of work for chromosome %s"%(n_batches, chrom))
-				n_batches_tensor = tf.ones([1])*n_batches
-				gather = hvd.allgather(n_batches_tensor)
-				with tf.Session() as sess:
-					n_batches_list = list(sess.run(gather))
-					assert(len(n_batches_list) == hvd_size)
+				logger.debug("I'm going to have %i units of work for chromosome %s"%(n_batches, chrom))
+				n_batches_list = [self.chrom_iter_len(chrom, seq_len, offset, batch_size, i, hvd_size) for i in range(hvd_size)]
 				if hvd_rank == 0:
 					logger.debug("All work loads %s"%(str(n_batches_list)))
 				max_batches = int(max(n_batches_list))
 			for out in self.chrom_iter(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size):
 				yield out
-			if hvd and hvd_size > 1:
+			if hvd_size > 1:
 				for i, out in enumerate(self.chrom_iter(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size)):
 					if i < max_batches-n_batches:
 						yield out

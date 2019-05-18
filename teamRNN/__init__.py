@@ -37,6 +37,7 @@
 
 import sys, os, argparse
 from glob import glob
+from time import time
 import pickle
 import logging
 try:
@@ -44,8 +45,9 @@ try:
 	hvd.init()
 except:
 	hvd = False
+import tensorflow as tf
 logger = logging.getLogger(__name__)
-FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)15s] %(message)s"
+FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
 from teamRNN import reader, constants, writer, model
 from pysam import FastaFile
 import numpy as np
@@ -169,6 +171,7 @@ def train(args):
 	for E in range(args.epochs):
 		cb_buffer, xb_buffer, yb_buffer = [], [], []
 		count = 0
+		start_time = time()
 		for cb, xb, yb in IS.new_batch_iter(seq_len=args.sequence_length, offset=args.offset, batch_size=args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
 			count += 1
 			#logger.info("Got region %i - %s"%(count, str(cb)))
@@ -179,17 +182,32 @@ def train(args):
 				yb = np.tile(yb, (repeat, 1, 1))[:args.batch_size,:,:]
 			#logger.info("Training on %s with data shapes %s %s"%(str(cb), str(xb.shape), str(yb.shape)))
 			MSE, train_time = M.train(xb, yb)
-			if not hvd or (hvd and hvd.rank() == 0):
-				logger.debug("Finished batch %s:%i-%i   MSE = %.3f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
-			else:
-				logger.debug("Finished batch %s:%i-%i   MSE = %.3f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
+			#if not hvd or (hvd and hvd.rank() == 0):
+			#	logger.debug("Finished batch %s:%i-%i   MSE = %.3f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
+			print count, MSE, train_time, time()-start_time
+			logger.info("Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, \
+				cb[0][0], cb[0][1], cb[-1][2], train_time, time()-start_time))
+			start_time = time()
 		# Print MSE
 		if not hvd or (hvd and hvd.rank() == 0):
 			logger.info("Finished epoch %3i - MSE = %.6f"%(E+1, MSE))
 			# Save between epochs
 			M.save()
+			logger.debug("Saved model")
+	logger.debug("Closing model session")
+	M.sess.close()
 	if not hvd or (hvd and hvd.rank() == 0):
-		logger.info("Done")
+		logger.debug("Done")
+	if hvd:
+		logger.info("Waiting on other processes")
+		barrier = hvd.allreduce(tf.constant(0))
+		with tf.Session() as sess:
+			ret = sess.run(barrier)
+		#logger.info("Shutting down horovod")
+		#hvd.shutdown()
+		#logger.debug("Horovod is shut down")
+	#logger.debug("Closing the tensorflow session")
+	#M.sess.close()
 
 def classify(args):
 	logger.debug("Model will classify the given input")
