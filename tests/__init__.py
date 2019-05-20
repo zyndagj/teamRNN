@@ -29,7 +29,7 @@ class TestReader(unittest.TestCase):
 		self.mr1 = os.path.join(tpath, 'test_meth.txt')
 		self.n_inputs = 10
 		self.n_outputs = len(constants.gff3_f2i)+2
-		self.test_model = True
+		self.test_model = False
 		self.n_epoch = 75
 		self.learning_rate = 0.01
 	def tearDown(self):
@@ -78,6 +78,39 @@ class TestReader(unittest.TestCase):
 									hvd_size*offset*batch_size)]
 							#print EL
 							self.assertEqual(CL, EL)
+	def test_stateful_chrom_iter(self):
+		I = reader.input_slicer(self.fa, self.mr1)
+		chrom_len = 20
+		for seq_len in (3,5):
+			for offset in (1,3):
+				for batch_size in (1,2):
+					for hvd_size in (1,2):
+						for hvd_rank in range(0,hvd_size):
+							size, rank = hvd_size, hvd_rank
+							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
+							num_contig_seq = seq_len/offset if seq_len % offset == 0 else seq_len
+							num_contig_seq_per_rank = min(int(num_contig_seq/size), batch_size)
+							if not num_contig_seq_per_rank and size > 1:
+								rank, size = 0, 1
+								num_contig_seq_per_rank = 1
+							num_batches = int((chrom_len-(num_contig_seq_per_rank*size-1)*offset)/seq_len)
+							# chrom range
+							start = rank * offset * num_contig_seq_per_rank
+							end = start + seq_len * (num_batches-1) + 1
+							step = seq_len
+							region_size = (num_contig_seq_per_rank-1)*offset+seq_len
+							CL = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+								offset, batch_size, hvd_rank, hvd_size, transform=False)]
+							#print CL
+							EL = [('Chr1',i,i+region_size) for i in range(start, end, step)]
+							#print EL
+							self.assertEqual(CL, EL)
+						if hvd_size == 2:
+							R1 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+								offset, batch_size, 0, hvd_size, transform=False)]
+							R2 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+								offset, batch_size, 1, hvd_size, transform=False)]
+							self.assertEqual(len(R1), len(R2))
 	def test_input_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		IL = list(I.genome_iter())
@@ -193,6 +226,25 @@ class TestReader(unittest.TestCase):
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
 			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
+			if IS.gff3_file:
+				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
+	def test_batch_stateful(self):
+		IS = reader.input_slicer(self.fa, self.mr1)
+		BL = list(IS.stateful_chrom_iter(chrom='Chr1', seq_len=5, offset=1, batch_size=2))
+		#for c,x in BL:
+		#	print c
+		#	for seq in x: print seq
+		self.assertEqual(len(BL), 3)
+		for out in BL:
+			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
+			if IS.gff3_file:
+				c,x,y = out
+			else:
+				c,x = out
+			self.assertEqual(np.array(x).shape, (2, 5, 10))
+			for i, region in enumerate(c):
+				c_region, x_region = IS._get_region(region[0], region[1], 20, 3, 5)
+				self.assertTrue(np.all(x_region == x[i]))
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
 	def test_batch_10(self):

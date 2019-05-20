@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/16/2019
+# Last Modified: 05/18/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -85,6 +85,8 @@ def main():
 	parser_train.add_argument('-P', '--peep', action='store_true', help='Use peep-hole connections on LSTM cells')
 	parser_train.add_argument('-S', '--stacked', action='store_true', help='Use stacked outputs')
 	parser_train.add_argument('-b', '--bidirectional', action='store_true', help='Reccurent layers are bidirectional')
+	merge_modes = ('sum', 'mul', 'concat', 'ave', 'none')
+	parser_train.add_argument('-m', '--merge', metavar="STR", help='Bidirectional layer merge modes ([concat], sum, mul, ave, none)', default='concat', type=_argChecker(merge_modes, 'cell type').check)
 	parser_train.add_argument('-w', '--regularize', action='store_true', help='Use a weight regularizer to penalize huge weights')
 	parser_train.add_argument('-H', '--hidden_list', metavar="STR", help='Comma separated list of hidden layer widths used after recurrent layers', type=str)
 	parser_train.add_argument('-f', '--force', action='store_true', help='Overwrite a previously saved model')

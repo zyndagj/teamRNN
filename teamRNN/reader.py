@@ -142,6 +142,7 @@ class input_slicer:
 #>C1 dna:chromosome chromosome:BOL:C1:1:43764888:1 REF
 	def _get_region(self, chrom, cur, chrom_len, chrom_quality, seq_len):
 		logger.debug("Fetching %s:%i-%i"%(chrom, cur, cur+seq_len))
+		#print "Fetching %s:%i-%i"%(chrom, cur, cur+seq_len)
 		coord = (chrom, cur, cur+seq_len)
 		seq = self.RC.fetch(chrom, cur, cur+seq_len)
 		# [[context_I, strand_I, c, ct, g, ga], ...]
@@ -242,6 +243,45 @@ class input_slicer:
 				xb = self._list2batch_num(x, seq_len, len(x)-seq_len+1)
 			else:
 				continue
+			if self.gff3_file:
+				yield (cb, xb, yb)
+			else:
+				yield (cb, xb)
+	def stateful_chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=5, hvd_rank=0, hvd_size=1, transform=True):
+		#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
+		chrom_len = self.FA.get_reference_length(chrom)
+		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
+		num_contig_seq = seq_len/offset if seq_len % offset == 0 else seq_len
+		num_contig_seq_per_rank = min(int(num_contig_seq/hvd_size), batch_size)
+		if not num_contig_seq_per_rank and hvd_size > 1:
+			logger.warn("Only one contiguous sequence because of sequence length and offset. All ranks will have the same sequence")
+			hvd_rank, hvd_size = 0, 1
+			num_contig_seq_per_rank = 1
+		num_batches = int((chrom_len-(num_contig_seq_per_rank*hvd_size-1)*offset)/seq_len)
+		#print "chrom_len: %i  #c_seq: %i  #batches: %i  #contigs/rank %i"%(chrom_len, num_contig_seq, num_batches, num_contig_seq_per_rank)
+		# chrom range
+		start = hvd_rank * offset * num_contig_seq_per_rank
+		#end = start + seq_len * num_batches + offset * (num_contig_seq_per_rank - 1)
+		end = start + seq_len * (num_batches-1) + 1
+		step = seq_len
+		region_size = (num_contig_seq_per_rank-1)*offset+seq_len
+		#print "start: %i  end: %i  step: %i  region_size: %i"%(start, end, step, region_size)
+		rank_str = "Rank %i - "%(hvd_rank) if hvd_size > 1 else ''
+		logger.debug("%sWill crawl %s:%i-%i with stateful batches"%(rank_str, chrom, start, end))
+		for cur in irange(start, end, step):
+			out = self._get_region(chrom, cur, chrom_len, chrom_quality, region_size)
+			if not transform:
+				yield out
+				continue
+			if self.gff3_file:
+				c,x,y = out
+				#print c
+				yb = self._list2batch_num(y, seq_len, batch_size)
+			else:
+				c,x = out
+			assert(len(x) == seq_len+batch_size-1)
+			cb = self._coord2batch(c, seq_len, batch_size)
+			xb = self._list2batch_num(x, seq_len, batch_size)
 			if self.gff3_file:
 				yield (cb, xb, yb)
 			else:
