@@ -28,9 +28,10 @@ class TestReader(unittest.TestCase):
 		self.gff3 = os.path.join(tpath, 'test.gff3')
 		self.mr1 = os.path.join(tpath, 'test_meth.txt')
 		self.n_inputs = 10
+		self.seq_len = 15
 		self.n_outputs = len(constants.gff3_f2i)+2
-		self.test_model = False
-		self.n_epoch = 75
+		self.test_model = True
+		self.n_epoch = 200
 		self.learning_rate = 0.01
 	def tearDown(self):
 		## Runs after every test function ##
@@ -312,106 +313,92 @@ class TestReader(unittest.TestCase):
 	def test_same_model(self):
 		if not self.test_model: return
 		seq_len = 5
-		model.reset_graph()
-		# create models
-		models = []
+		mse_lists = [[], []]
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		for i in range(2):
 			name = 'model_%i'%(i)
 			m = model.sleight_model(name, self.n_inputs, seq_len, self.n_outputs, \
-				n_neurons=20, n_layers=1, learning_rate=0.001, training_keep=0.95, \
-				dropout=False, cell_type='rnn', peep=False, stacked=False, \
-				bidirectional=False, reg_losses=False, hidden_list=[])
-			models.append(m)
-		# train models
-		for epoch in range(3):
-			IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-			for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
-				mse = [m.train(xb, yb)[0] for m in models]
-				self.assertEqual(mse[0], mse[1])
+				n_neurons=20, n_layers=1, learning_rate=0.001, dropout=0, \
+				cell_type='rnn', reg_kernel=False, reg_bias=False, reg_activity=False, \
+				l1=0, l2=0, bidirectional=False, merge_mode='concat', \
+				stateful=False, hidden_list=[], save_dir='.')
+			for epoch in range(2):
+				for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
+					mse, acc, time = m.train(xb, yb)
+					mse_lists[i].append(mse)
+			del m
+		self.assertEqual(mse_lists[0], mse_lists[1])
 	def test_model_effect(self):
+		def train_mse(IS, m, epoch=3):
+			seq_len, out_mse = 5, []
+			for e in range(epoch):
+				out_mse += [m.train(x,y)[0] for c,x,y in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1)]
+			return out_mse
 		if not self.test_model: return
 		seq_len = 5
-		model.reset_graph()
-		# create models
-		models = [model.sleight_model('d%i'%(i), self.n_inputs, seq_len, self.n_outputs) for i in range(2)]
-		models.append(model.sleight_model('neurons', self.n_inputs, seq_len, self.n_outputs, n_neurons=50))
-		models.append(model.sleight_model('layers', self.n_inputs, seq_len, self.n_outputs, n_layers=2))
-		models.append(model.sleight_model('learning', self.n_inputs, seq_len, self.n_outputs, learning_rate=0.01))
-		models.append(model.sleight_model('dropout', self.n_inputs, seq_len, self.n_outputs, training_keep=0.9, dropout=True))
-		models.append(model.sleight_model('lstm', self.n_inputs, seq_len, self.n_outputs, cell_type='lstm'))
-		models.append(model.sleight_model('lstm_peep', self.n_inputs, seq_len, self.n_outputs, cell_type='lstm', peep=True))
-		models.append(model.sleight_model('peep', self.n_inputs, seq_len, self.n_outputs, peep=True))
-		models.append(model.sleight_model('stacked', self.n_inputs, seq_len, self.n_outputs, stacked=True))
-		models.append(model.sleight_model('bidirectional', self.n_inputs, seq_len, self.n_outputs, bidirectional=True))
-		models.append(model.sleight_model('reg_losses', self.n_inputs, seq_len, self.n_outputs, reg_losses=True))
-		models.append(model.sleight_model('reg_losses_stacked', self.n_inputs, seq_len, self.n_outputs, stacked=True, reg_losses=True))
-		models.append(model.sleight_model('hidden', self.n_inputs, seq_len, self.n_outputs, hidden_list=[10]))
-		# train models
-		first = True
-		for epoch in range(3):
-			IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-			for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
-				mse = [m.train(xb, yb)[0] for m in models]
-				# Should be qual
-				self.assertEqual(mse[0], mse[1])
-				self.assertEqual(mse[0], mse[8])
-				self.assertEqual(mse[0], mse[11])
-				if first:
-					self.assertEqual(mse[0], mse[4])
-				else:
-				# Should be different
-					self.assertNotEqual(mse[0], mse[4])
-				self.assertNotEqual(mse[0], mse[2])
-				self.assertNotEqual(mse[0], mse[3])
-				self.assertNotEqual(mse[0], mse[5])
-				self.assertNotEqual(mse[0], mse[6])
-				self.assertNotEqual(mse[0], mse[7])
-				self.assertNotEqual(mse[0], mse[9])
-				self.assertNotEqual(mse[0], mse[10])
-				self.assertNotEqual(mse[0], mse[12])
-				self.assertNotEqual(mse[11], mse[12])
-				self.assertNotEqual(mse[0], mse[13])
-				first = False
-	def test_train_01(self):
-		if not self.test_model: return
-		from random import shuffle, random
-		seq_len = 15
-		batch_size = 20-seq_len+1
-		model.reset_graph()
-		# create models
-		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, \
-			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model')
-		# train models
-		ts = time()
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		ISBL = list(IS.new_batch_iter(seq_len, batch_size))
+		constant_args = (self.n_inputs, seq_len, self.n_outputs)
+		# Baseline
+		baseline_mse = train_mse(IS,  model.sleight_model('default', *constant_args))
+		#print baseline_mse
+		# Variations
+		neurons_mse = train_mse(IS,  model.sleight_model('neurons', *constant_args, n_neurons=100))
+		layers_mse = train_mse(IS,  model.sleight_model('layers', *constant_args, n_layers=3))
+		learning_mse = train_mse(IS,  model.sleight_model('learning', *constant_args, learning_rate=0.01))
+		dropout_mse = train_mse(IS,  model.sleight_model('dropout', *constant_args, dropout=0.10))
+		lstm_mse = train_mse(IS,  model.sleight_model('lstm', *constant_args, cell_type='lstm'))
+		bidirectional_mse = train_mse(IS,  model.sleight_model('bidirectional', *constant_args, bidirectional=True))
+		bias_mse = train_mse(IS,  model.sleight_model('bias', *constant_args, reg_bias=True, l1=0.1))
+		hidden_mse = train_mse(IS,  model.sleight_model('hidden', *constant_args, hidden_list=[50]))
+		baseline2_mse = train_mse(IS,  model.sleight_model('default', *constant_args))
+		# Check baseline
+		self.assertEqual(len(baseline_mse), len(baseline2_mse))
+		self.assertTrue(baseline_mse == baseline2_mse)
+		# Make sure different parameters had an effect
+		for mse_list in (neurons_mse, layers_mse, dropout_mse, lstm_mse, bidirectional_mse, hidden_mse):
+			#print mse_list
+			self.assertEqual(len(baseline_mse), len(mse_list))
+			for i in range(len(mse_list)):
+				self.assertNotEqual(baseline_mse[i], mse_list[i])
+		for mse_list in (learning_mse, bias_mse):
+			#print mse_list
+			self.assertEqual(len(baseline_mse), len(mse_list))
+			self.assertEqual(baseline_mse[0], mse_list[0])
+			for i in range(1,len(mse_list)):
+				self.assertNotEqual(baseline_mse[i], mse_list[i])
+	def test_train_01(self):
+		def a2s(a):
+			return '['+', '.join(map(lambda x: '%.2f'%(x), a))+']'
+		if not self.test_model: return
+		batch_size = 20-self.seq_len+1
+		# create models
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
+			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
+			cell_type='lstm')
+		# train models
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		ISBL = list(IS.new_batch_iter(self.seq_len, batch_size))
+		#for c,x,y in ISBL:
+		#	for i in range(len(c)):
+		#		chrom, start, end = c[i]
+		#		print c[i]
+		#		for j,k in enumerate(range(start, end)):
+		#			print "%s %2i %s"%(chrom, k, a2s(x[i][j])), np.nonzero(y[i][j])[0]
+		x_batch = np.vstack(map(lambda x: x[1], ISBL))
+		y_batch = np.vstack(map(lambda x: x[2], ISBL))
+		#M.model.fit(x_batch, y_batch, batch_size=batch_size, epochs=50, shuffle=True)
 		for epoch in range(1,self.n_epoch+1):
-			for cb, xb, yb in ISBL:
-				# shuffle indices
-				self.assertEqual(len(xb), batch_size)
-				randInds = list(range(len(xb)))
-				shuffle(randInds)
-				xbs = [xb[i] for i in randInds]
-				ybs = [yb[i] for i in randInds]
-				if random() > 0.2:
-					M.train(xbs, ybs)
-			if epoch % 500 == 0:
-				#print("Trained epoch %i in %.2f seconds"%(epoch, time()-ts))
-				ts = time()
+			mse,acc,time = M.train(x_batch, y_batch)
 		M.save()
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		# Vote
 		OA = writer.output_aggregator(self.fa)
-		for c, xb, yb in IS.new_batch_iter(seq_len, batch_size=1):
+		for c, xb, yb in IS.new_batch_iter(self.seq_len, batch_size=1):
 			y = yb[0]
 			y_pred = M.predict(xb)[0]
 			for feature_index in range(len(y[0])):
-				yl, ypl = [], []
-				for base_index in range(len(y)):
-					yl.append('%i'%(y[base_index][feature_index]))
-					ypl.append('%i'%(y_pred[base_index][feature_index]))
-				ys = ', '.join(yl)
-				yps = ', '.join(ypl)
+				ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+				yps = ', '.join([str(y_pred[bi][feature_index]) for bi in range(len(y))])
 				if ys != yps:
 					print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
 			self.assertTrue(np.array_equal(y, y_pred))
@@ -427,32 +414,131 @@ class TestReader(unittest.TestCase):
 					self.assertEqual(ols, fls)
 	def test_train_02_restore(self):
 		if not self.test_model: return
-		from random import shuffle, random
-		seq_len = 15
-		batch_size = 20-seq_len+1
-		model.reset_graph()
+		batch_size = 20-self.seq_len+1
 		# create models
-		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, \
-			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model')
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
+			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
+			cell_type='lstm')
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		M.restore()
 		# Vote
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		OA = writer.output_aggregator(self.fa)
-		for c, xb, yb in IS.new_batch_iter(seq_len, batch_size=1):
+		for c, xb, yb in IS.new_batch_iter(self.seq_len, batch_size=1):
 			y = yb[0]
 			y_pred = M.predict(xb)[0]
 			for feature_index in range(len(y[0])):
-				yl, ypl = [], []
-				for base_index in range(len(y)):
-					yl.append('%i'%(y[base_index][feature_index]))
-					ypl.append('%i'%(y_pred[base_index][feature_index]))
-				ys = ', '.join(yl)
-				yps = ', '.join(ypl)
+				ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+				yps = ', '.join([str(y_pred[bi][feature_index]) for bi in range(len(y))])
 				if ys != yps:
 					print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
 			self.assertTrue(np.array_equal(y, y_pred))
 			OA.vote(*c[0], array=y_pred)
+		# Compare
+		out_lines = OA.write_gff3()
+		with open(self.gff3,'r') as GFF3:
+			for ol, fl in zip(out_lines, GFF3.readlines()):
+				if ol[0] != '#':
+					ols = ol.split('\t')[:9]
+					ols[1] = 'test'
+					fls = fl.rstrip('\n').split('\t')[:9]
+					self.assertEqual(ols, fls)
+		if os.path.exists(M.save_dir):
+			from shutil import rmtree
+			rmtree(M.save_dir)
+	def test_train_stateful_01(self):
+		def a2s(a):
+			return '['+', '.join(map(lambda x: '%.2f'%(x), a))+']'
+		def non_zero(a):
+			return ' '.join(["%i:%i"%(i,a[i]) for i in np.nonzero(a)[0]])
+		if not self.test_model: return
+		seq_len, batch_size = 6, 3
+		# create models
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
+			learning_rate=0.01, bidirectional=False, save_dir='test_model', \
+			cell_type='lstm', stateful=batch_size)
+		# train models
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		#M.model.fit(x_batch, y_batch, batch_size=batch_size, epochs=50, shuffle=True)
+		for epoch in range(1,100+1):
+			#bi = np.random.permutation(batch_size)
+			bi = np.arange(batch_size)
+			for chrom in sorted(IS.FA.references):
+				for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, batch_size):
+					mse,acc,time = M.train(xb[bi,:,:],yb[bi,:,:])
+				M.model.reset_states()
+			#print epoch, mse
+		#print mse
+		M.save()
+		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
+		# Vote
+		OA = writer.output_aggregator(self.fa)
+		for chrom in sorted(IS.FA.references):
+			M.model.reset_states()
+			for c, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, 1):
+				chrom,s,e = c[0]
+				xb = np.tile(xb, (batch_size,1,1))
+				#print xb.shape
+				for i in range(1,batch_size):
+					self.assertTrue(np.array_equal(xb[0], xb[i]))
+				y = yb[0]
+				y_pred_batch = M.predict(xb)
+				y_pred = y_pred_batch[0]
+				#for i in range(s,e):
+				#	print (chrom, i)
+				#	print "actual", non_zero(y[i-s])
+				#	print "pred 0", non_zero(y_pred_batch[0][i-s])
+				#	print "pred 1", non_zero(y_pred_batch[1][i-s])
+				for i in range(1,batch_size):
+					self.assertTrue(np.array_equal(y_pred_batch[0], y_pred_batch[1]))
+				for feature_index in range(len(y[0])):
+					ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+					yps = ', '.join([str(y_pred[bi][feature_index]) for bi in range(len(y))])
+					if ys != yps:
+						print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
+				self.assertTrue(np.array_equal(y, y_pred))
+				OA.vote(*c[0], array=y_pred)
+		# Compare
+		out_lines = OA.write_gff3()
+		with open(self.gff3,'r') as GFF3:
+			for ol, fl in zip(out_lines, GFF3.readlines()):
+				if ol[0] != '#':
+					ols = ol.split('\t')[:9]
+					ols[1] = 'test'
+					fls = fl.rstrip('\n').split('\t')[:9]
+					self.assertEqual(ols, fls)
+	def test_train_stateful_02(self):
+		if not self.test_model: return
+		seq_len, batch_size = 6, 3
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		# create models
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
+			learning_rate=0.01, bidirectional=False, save_dir='test_model', \
+			cell_type='lstm', stateful=batch_size)
+		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
+		M.restore()
+		# Vote
+		OA = writer.output_aggregator(self.fa)
+		for chrom in sorted(IS.FA.references):
+			M.model.reset_states()
+			for c, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, 1):
+				chrom,s,e = c[0]
+				xb = np.tile(xb, (batch_size,1,1))
+				#print xb.shape
+				for i in range(1,batch_size):
+					self.assertTrue(np.array_equal(xb[0], xb[i]))
+				y = yb[0]
+				y_pred_batch = M.predict(xb)
+				y_pred = y_pred_batch[0]
+				for i in range(1,batch_size):
+					self.assertTrue(np.array_equal(y_pred_batch[0], y_pred_batch[1]))
+				for feature_index in range(len(y[0])):
+					ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+					yps = ', '.join([str(y_pred[bi][feature_index]) for bi in range(len(y))])
+					if ys != yps:
+						print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
+				self.assertTrue(np.array_equal(y, y_pred))
+				OA.vote(*c[0], array=y_pred)
 		# Compare
 		out_lines = OA.write_gff3()
 		with open(self.gff3,'r') as GFF3:
@@ -472,20 +558,21 @@ class TestReader(unittest.TestCase):
 			'-D', 'test_cli', \
 			'-N', 'plain', \
 			'-M', self.mr1, \
-			'-B', '6', \
 			'train', \
+			'-B', '6', \
 			'-A', self.gff3, \
 			'-E', str(self.n_epoch), \
 			'-r', str(self.learning_rate), \
 			'-L', '15', \
-			'-b', '-f', \
-			'-C', 'rnn']
+			'-n', '60', \
+			'-b', '-f']
 		with patch('sys.argv', testArgs):
 			teamRNN.main()
 		output = logStream.getvalue()
 		splitOut = output.split('\n')
 		self.assertTrue('Done' in splitOut[-2])
-		self.assertTrue(os.path.exists('test_cli/plain_i15x10_birnn1x100_learn%.3f_pF_sF_d0.95_rF_h0.ckpt.index'%(self.learning_rate)))
+		#for f in glob('test_cli/*'): print f
+		self.assertTrue(os.path.exists('test_cli/plain_s15x10_o68_1xbilstm60_merge-concat_statefulF_learn%s_drop0.h5'%(str(self.learning_rate))))
 		self.assertTrue(os.path.exists('test_cli/config.pkl'))
 	def test_train_cli_02(self):
 		if not self.test_model: return
@@ -494,7 +581,6 @@ class TestReader(unittest.TestCase):
 			'-D', 'test_cli', \
 			'-N', 'plain', \
 			'-M', self.mr1, \
-			'-B', '6', \
 			'classify', \
 			'-O', 'test_cli/out.gff3']
 		with patch('sys.argv', testArgs):
@@ -515,6 +601,60 @@ class TestReader(unittest.TestCase):
 		if os.path.exists('test_cli'):
 			from shutil import rmtree
 			rmtree('test_cli')
+	def test_stateful_cli_01(self):
+		if not self.test_model: return
+		out_dir, lr, sl = 'test_stateful_cli', '0.01', '6'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'train', \
+			'-B', '1', \
+			'-A', self.gff3, \
+			'-E', '40', \
+			'-r', lr, \
+			'-l', '1', \
+			'-L', sl, \
+			'-n', '80', \
+			'--stateful', \
+			'-f']
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		self.assertTrue('Done' in splitOut[-2])
+		#for f in glob('test_cli/*'): print f
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o68_1xlstm80_stateful1_learn%s_drop0.h5'%(out_dir, sl, lr)))
+		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
+	def test_stateful_cli_02(self):
+		if not self.test_model: return
+		out_dir = 'test_stateful_cli'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'classify', \
+			'-O', '%s/out.gff3'%(out_dir)]
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		#for so in splitOut: print so
+		self.assertTrue('Done' in splitOut[-2])
+		self.assertTrue(os.path.exists('%s/out.gff3'%(out_dir)))
+		F1 = open(self.gff3,'r')
+		F2 = open('%s/out.gff3'%(out_dir),'r')
+		for test_line, cli_line in zip(F1.readlines(), F2.readlines()):
+			if cli_line[0] != '#':
+				test_split = test_line.rstrip('\n').split('\t')
+				test_split[1] = 'teamRNN'
+				cli_split = cli_line.rstrip('\n').split('\t')
+				self.assertEqual(test_split, cli_split)
+		if os.path.exists(out_dir):
+			from shutil import rmtree
+			rmtree(out_dir)
 
 if __name__ == "__main__":
 	unittest.main()

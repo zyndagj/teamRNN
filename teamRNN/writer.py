@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/16/2019
+# Last Modified: 05/31/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -65,7 +65,7 @@ class output_aggregator:
 		self.__del__()
 	def _load_arrays(self, chrom):
 		self.feature_vote_array = self.H5[chrom+'/votes/features']
-		#self.feature_total_array = self.H5[chrom+'/totals/features']
+		self.feature_total_array = self.H5[chrom+'/totals/features']
 		self.te_order_array = self.H5[chrom+'/votes/tes/order']
 		self.te_sufam_array = self.H5[chrom+'/votes/tes/sufam']
 		#self.te_total_array = self.H5[chrom+'/totals/tes']
@@ -91,6 +91,7 @@ class output_aggregator:
 				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
 		self.cur_chrom = chrom
 	def vote(self, chrom, start, end, array):
+		#print "VOTE:", chrom, start, end, np.nonzero(array)
 		# Split the array
 		feature_array = array[:,:len(gff3_i2f)]
 		te_order_array = array[:,-2]
@@ -99,7 +100,9 @@ class output_aggregator:
 		if self.cur_chrom != chrom:
 			self._load_arrays(chrom)
 		# Track features
+		#print "BEFORE", self.feature_total_array[start:end].flatten()
 		self.feature_total_array[start:end] += 1
+		#print "AFTER", self.feature_total_array[start:end].flatten()
 		if np.sum(feature_array):
 			self.feature_vote_array[start:end] += feature_array
 		# Track te class/family
@@ -122,7 +125,9 @@ class output_aggregator:
 				index_totals = self.feature_total_array[index]
 				for feat_index in gff3_i2f.keys():
 					se = se_array[feat_index]
-					if index_votes[feat_index] >= threshold*index_totals:
+					#if index_votes[feat_index] > 0:
+						#print chrom, index, feat_index, index_votes[feat_index], index_totals, index_votes[feat_index] >= threshold*index_totals
+					if index_votes[feat_index] >= threshold*index_totals and index_votes[feat_index] > 0:
 						if se[0] == 0:
 							se[0] = index+1
 						else:

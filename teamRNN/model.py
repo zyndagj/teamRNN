@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/19/2019
+# Last Modified: 05/30/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -37,19 +37,19 @@
 
 #!pip install hmmlearn &> /dev/null
 import numpy as np
-import os, psutil
+import os, psutil, random
 #from hmmlearn import hmm
 os.putenv('TF_CPP_MIN_LOG_LEVEL','3')
 import tensorflow as tf
 tf.logging.set_verbosity(tf.logging.ERROR)
 from tensorflow.python.client import device_lib
-from tensorflow.keras.backend import set_session
+from tensorflow.keras.backend import set_session, clear_session
 from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.layers import Bidirectional, LSTM, RNN, Dense, CuDNNLSTM 
+from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed
 from tensorflow.keras.regularizers import l1, l2, l1_l2
-from tensorflow.keras.optimizers import RMSprop, Adam
+from tensorflow.keras.optimizers import RMSprop, Adam, SGD
 try:
-	import horovod.tensorflow as hvd
+	import horovod.keras as hvd
 	#hvd.init() # Only need to do this once
 except:
 	hvd = False
@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 class sleight_model:
 	# https://github.com/tensorflow/models/blob/1af55e018eebce03fb61bba9959a04672536107d/research/autoencoder/autoencoder_models/DenoisingAutoencoder.py
-	def __init__(self, name, n_inputs=1, n_steps=50, n_outputs=1, n_neurons=100, n_layers=1, \
+	def __init__(self, name, n_inputs=1, n_steps=50, n_outputs=1, n_neurons=20, n_layers=1, \
 		 learning_rate=0.001, dropout=0, cell_type='rnn', reg_kernel=False, reg_bias=False, \
 		 reg_activity=False, l1=0, l2=0, bidirectional=False, merge_mode='concat', \
 		 stateful=False, hidden_list=[], save_dir='.'):
@@ -82,8 +82,9 @@ class sleight_model:
 		self.bidirectional = bidirectional # each RNN layer is bidirectional
 		self.merge_mode = None if merge_mode == 'none' else merge_mode
 		self.stateful = stateful # Whether the batches are stateful
+		if self.stateful: assert(not self.bidirectional)
 		# supported cell types
-		self.cell_options = {'rnn':RNN, 'lstm':CuDNNLSTM if self.gpu else LSTM}
+		self.cell_options = {'rnn':SimpleRNN, 'lstm':CuDNNLSTM if self.gpu else LSTM}
 		# Additional layers
 		self.hidden_list = hidden_list # List of hidden layer sizes
 		# TODO remake this name
@@ -93,13 +94,17 @@ class sleight_model:
 		else:
 			self.save_dir = os.path.join(os.getcwd(), save_dir)
 		self.save_file = os.path.join(self.save_dir, '%s.h5'%(self.param_name))
-		self.graph = tf.Graph() # Init graph
-		logger.debug("Created graph")
+		#self.graph = tf.Graph() # Init graph
+		#logger.debug("Created graph")
 		######################################
 		# Set the RNG seeds
 		######################################
+		clear_session()
+		tf.reset_default_graph()
 		np.random.seed(42)
+		random.seed(42)
 		tf.set_random_seed(42)
+		logger.debug("Cleared session and reset random seeds")
 		######################################
 		# Configure the session
 		######################################
@@ -120,43 +125,53 @@ class sleight_model:
 			logger.debug("Allowing memory growth on GPU")
 			config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
 			#config.log_device_placement = True  # to log device placement (on which device the operation ran)
-			sess = tf.Session(config=config)
-			set_session(sess)  # set this TensorFlow session as the default session for Keras
 		else:
+			config = tf.ConfigProto()
 			logger.debug("Using default config")
+		sess = tf.Session(graph=tf.get_default_graph(), config=config)
+		set_session(sess)  # set this TensorFlow session as the default session for Keras
 		######################################
 		# Build graph
 		######################################
 		self.model = Sequential()
-		for i in self.n_layers:
+		logger.debug("Creating %i %slayers with %s%% dropout after each layer"%(self.n_layers, "bidirectional " if self.bidirectional else "", self.dropout))
+		if self.bidirectional:
+			logger.debug("Bidirectional layers will be merged with %s"%(self.merge_mode))
+		for i in range(self.n_layers):
 			self.model.add(self._gen_rnn_layer(i))
 			# Add dropout between layers
 			if self.dropout:
-				self.model.add(Dropout(1.0-self.training_keep))
+				self.model.add(Dropout(self.dropout))
 		# Handel hidden layers
+		if hidden_list:
+			logger.debug("Appending %s TimeDistributed hidden layers"%(str(hidden_list)))
 		for hidden_neurons in hidden_list:
-			self.model.add(Dense(hidden_neurons, activation='relu'))
+			self.model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
 		# Final
-		self.model.add(layers.Dense(self.n_outputs, activation=None))
+		self.model.add(TimeDistributed(Dense(self.n_outputs, activation='linear')))
+		#self.model.add(Dense(self.n_outputs, activation=None))
 		######################################
 		# Define optimizer and compile
 		######################################
 		loss_functions = ('mean_squared_error', 'mean_squared_logarithmic_error', 'categorical_crossentropy')
-		loss_func = loss_functions[1]
-		#opt = Adam(self.learning_rate)
-		opt = RMSprop(self.learning_rate)
+		# sparse_categorical_crossentropy - wants a single output
+		loss_func = loss_functions[0]
+		#opt = SGD(lr=self.learning_rate)
+		opt = Adam(lr=self.learning_rate)
+		logger.debug("Using the adam optimizer with a learning rate of %s and the %s loss function"%(str(self.learning_rate), loss_func))
+		#opt = RMSprop(self.learning_rate)
 		if hvd:
 			opt = hvd.DistributedOptimizer(opt)
 			self.callbacks = [hvd.callbacks.BroadcastGlobalVariablesCallback(0)]
 		self.model.compile(loss=loss_func, optimizer=opt, metrics=['accuracy'])
 		# Done
 	def _gen_name(self):
-		out_name = "%s_s%ix%i_o%i"%(name, self.n_steps, self.n_inputs, self.n_outputs)
+		out_name = "%s_s%ix%i_o%i"%(self.name, self.n_steps, self.n_inputs, self.n_outputs)
 		cell_prefix = 'bi' if self.bidirectional else ''
 		out_name += "_%ix%s%s%i"%(self.n_layers, cell_prefix, self.cell_type, self.n_neurons)
 		if cell_prefix:
 			out_name += '_merge-%s'%(str(self.merge_mode))
-		out_name += "_state%s"%('T' if self.stateful else 'F')
+		out_name += "_stateful%s"%(str(self.stateful) if self.stateful else 'F')
 		out_name += "_learn%s_drop%s"%(str(self.learning_rate), str(self.dropout))
 		if (self.reg_kernel or self.reg_bias or self.reg_activity) and (self.l1 or self.l2):
 			reg_str = "reg"
@@ -172,29 +187,59 @@ class sleight_model:
 				reg_str += '-l2(%s)'%(str(self.l2))
 		
 			out_name += reg_str
-		if hidden_list:
+		if self.hidden_list:
 			out_name += '_'+'h'.join(map(str, self.hidden_list))
 		return out_name
 	def _gen_rnn_layer(self, num=0):
-		cell_func = self.cell_options[self.cell_type]
+		# I may need to modify this for "use_bias"
 		if num == 0:
 			input_shape = (self.n_steps, self.n_inputs)
 			if self.bidirectional:
-				return Bidirectional(cell_func(self.n_neurons, return_sequences=True), merge_mode=self.merge_mode, input_shape=input_shape)
+				if self.stateful:
+					bis = (self.stateful, self.n_steps, self.n_inputs)
+					return Bidirectional(self._gen_cell_layer(num+1), \
+						merge_mode=self.merge_mode, batch_input_shape=bis)
+				return Bidirectional(self._gen_cell_layer(num+1), \
+					merge_mode=self.merge_mode, input_shape=input_shape)
 			else:
-				return cell_func(self.n_neurons, return_sequences=True, input_shape=input_shape)
+				return self._gen_cell_layer(num)
 		else:
 			if self.bidirectional:
-				return Bidirectional(cell_func(self.n_neurons, return_sequences=True), merge_mode=self.merge_mode)
+				return Bidirectional(self._gen_cell_layer(num), merge_mode=self.merge_mode)
 			else:
-				return cell_func(self.n_neurons, return_sequences=True)
+				return self._gen_cell_layer(num)
+	def _gen_cell_layer(self, num=0):
+		cell_func = self.cell_options[self.cell_type]
+		if num == 0 and not self.bidirectional:
+			input_shape = (self.n_steps, self.n_inputs)
+			if self.stateful:
+				bis = (self.stateful, self.n_steps, self.n_inputs)
+				return cell_func(self.n_neurons, return_sequences=True, \
+					use_bias=False, \
+					kernel_regularizer=self._gen_reg('kernel'), \
+					bias_regularizer=self._gen_reg('bias'), \
+					activity_regularizer=self._gen_reg('activity'), \
+					stateful=bool(self.stateful), \
+					batch_input_shape=bis)
+			return cell_func(self.n_neurons, return_sequences=True, input_shape=input_shape, \
+				kernel_regularizer=self._gen_reg('kernel'), \
+				bias_regularizer=self._gen_reg('bias'), \
+				activity_regularizer=self._gen_reg('activity'), \
+				stateful=bool(self.stateful))
+		else:
+			return cell_func(self.n_neurons, return_sequences=True, \
+				use_bias=False, \
+				kernel_regularizer=self._gen_reg('kernel'), \
+				bias_regularizer=self._gen_reg('bias'), \
+				activity_regularizer=self._gen_reg('activity'), \
+				stateful=bool(self.stateful))
 	def _gen_reg(self, name):
 		if name == 'kernel' and self.reg_kernel:
-			return self_gen_l1_l2()
+			return self._gen_l1_l2()
 		elif name == 'bias' and self.reg_bias:
-			return self_gen_l1_l2()
+			return self._gen_l1_l2()
 		elif name == 'activity' and self.reg_activity:
-			return self_gen_l1_l2()
+			return self._gen_l1_l2()
 		else:
 			return None
 	def _gen_l1_l2(self):
@@ -216,37 +261,31 @@ class sleight_model:
 	def restore(self):
 		self.model.load_weights(self.save_file)
 		logger.debug("Restored model from %s"%(self.save_file))
-#	def train(self, x_batch, y_batch):
-#		with self.graph.as_default():
-#			start_time = time()
-#			#self.sess.run(self.bcast)
-#			opt_ret, mse = self.sess.run([self.training_op, self.loss], \
-#				feed_dict={self.X:x_batch, self.Y:y_batch, \
-#						self.keep_p:self.training_keep})
-#			end_time = time()
-#			total_time = end_time - start_time
-#			logger.debug("Finished training batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
-#		return (mse, total_time)
-#	def predict(self, x_batch, render=False):
-#		with self.graph.as_default():
-#			# The shape is now probably wrong for this
-#			y_pred = np.abs(self.sess.run(self.logits, \
-#					feed_dict={self.X:x_batch, self.keep_p:1.0}).round(0))
-#			y_pred = y_pred.astype(np.uint8)
-#		if render:
-#			print("Model: %s"%(self.name))
-#			# render results
-#			#renderResults(x_batch.flatten(), y_batch.flatten(), y_pred)
-#		return y_pred
+	def __del__(self):
+		clear_session()
+	def train(self, x_batch, y_batch):
+		# TODO add horovod code
+		start_time = time()
+		loss, accuracy = self.model.train_on_batch(x_batch, y_batch)
+		total_time = time() - start_time
+		logger.debug("Finished training batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
+		return (loss, accuracy, total_time)
+	def predict(self, x_batch):
+		start_time = time()
+		y_pred = self.model.predict_on_batch(x_batch)
+		total_time = time() - start_time
+		logger.debug("Finished predict batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
+		return np.abs(y_pred.round(0)).astype(np.uint32)
+	def predict_stateful(self, x_batch):
+		start_time = time()
+		y_pred = self.model.predict_on_batch(x_batch)
+		total_time = time() - start_time
+		logger.debug("Finished predict batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
+		return np.abs(y_pred.round(0)).astype(np.uint32)
 
 def mem_usage():
 	process = psutil.Process(os.getpid())
 	return process.memory_info().rss/1000000
-
-def reset_graph(seed=42):
-	tf.reset_default_graph()
-	tf.set_random_seed(seed)
-	np.random.seed(seed)
 
 if __name__ == "__main__":
 	main()
