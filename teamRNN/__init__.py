@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/31/2019
+# Last Modified: 06/07/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -195,7 +195,7 @@ def train(args):
 			cb_buffer, xb_buffer, yb_buffer = [], [], []
 			count = 0
 			start_time = time()
-			for cb, xb, yb in IS.new_batch_iter(seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+			for cb, xb, yb in IS.genome_iter(seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
 				count += 1
 				#logger.info("Got region %i - %s"%(count, str(cb)))
 				# horovod requires that batch sizes be the same
@@ -286,7 +286,7 @@ def classify(args):
 					OA.vote(*c, array=yp)
 			M.model.reset_states()
 	else:
-		for cb, xb in IS.new_batch_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+		for cb, xb in IS.genome_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
 			y_pred_batch = M.predict(xb)
 			for c, x, yp in zip(cb, xb, y_pred_batch):
 				OA.vote(*c, array=yp)

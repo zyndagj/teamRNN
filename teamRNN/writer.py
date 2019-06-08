@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/31/2019
+# Last Modified: 06/07/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -93,6 +93,7 @@ class output_aggregator:
 	def vote(self, chrom, start, end, array):
 		#print "VOTE:", chrom, start, end, np.nonzero(array)
 		# Split the array
+		assert(array.shape[1] == len(gff3_i2f)+2)
 		feature_array = array[:,:len(gff3_i2f)]
 		te_order_array = array[:,-2]
 		te_sufam_array = array[:,-1]

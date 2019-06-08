@@ -31,7 +31,7 @@ class TestReader(unittest.TestCase):
 		self.seq_len = 15
 		self.n_outputs = len(constants.gff3_f2i)+2
 		self.test_model = True
-		self.n_epoch = 200
+		self.n_epoch = 100
 		self.learning_rate = 0.01
 	def tearDown(self):
 		## Runs after every test function ##
@@ -61,7 +61,49 @@ class TestReader(unittest.TestCase):
 		FA = FastaFile(self.fa)
 		for chrom in FA.references:
 			self.assertEqual(RC.chrom_qualities[chrom], 3)
+	def test_l2b(self):
+		I = reader.input_slicer(self.fa, self.mr1)
+		iA = np.tile(np.arange(9).reshape((9,1)), (1,2))
+		o_str = np.array(I._list2batch_str(iA, 5, 3, 2))
+		self.assertEqual(o_str.shape, (3,5,2))
+		for i in range(3):
+			expected = np.tile(np.arange(i*2,i*2+5).reshape((5,1)), (1,2))
+			if not np.all(o_str[i] == expected):
+				print "L i=%i   %s != %s"%(i, o_str[i], expected)
+			self.assertTrue(np.all(o_str[i] == expected))
+		o_num = I._list2batch_num(iA, 5, 3, 2)
+		self.assertEqual(o_num.shape, (3,5,2))
+		for i in range(3):
+			expected = np.tile(np.arange(i*2,i*2+5).reshape((5,1)), (1,2))
+			if not np.all(o_num[i] == expected):
+				print "N i=%i   %s != %s"%(i, o_num[i], expected)
+			self.assertTrue(np.all(o_num[i] == expected))
+		o_coord = I._coord2batch(('Chr1', 0, 9), 5, 3, 2)
+		self.assertEqual(o_coord, [('Chr1', 0, 5), ('Chr1', 2, 7), ('Chr1', 4, 9)])
 	def test_chrom_iter(self):
+		I = reader.input_slicer(self.fa, self.mr1)
+		chrom_len = 20
+		for seq_len in (5,6):
+			for offset in (1,2):
+				for batch_size in (1,2):
+					for hvd_size in (1,2):
+						for hvd_rank in range(0,hvd_size):
+							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
+							CL = [c for c,x in I.chrom_iter('Chr1', seq_len, \
+								offset, batch_size, hvd_rank, hvd_size)]
+							#print CL
+							full_len = seq_len+(batch_size-1)*offset
+							EL = [I._coord2batch(('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)), seq_len, batch_size, offset) for i \
+								in range(hvd_rank*(offset*batch_size), \
+									chrom_len-full_len+1, \
+									hvd_size*offset*batch_size)]
+							#print EL
+							self.assertEqual(CL, EL)
+	def test_genome_iter(self):
+		def find_max(seq_len, offset, batch_size, hvd_size):
+			return max([len(range(r*offset*batch_size, \
+					chrom_len-full_len+1, \
+					hvd_size*offset*batch_size)) for r in range(hvd_size)])
 		I = reader.input_slicer(self.fa, self.mr1)
 		chrom_len = 20
 		for seq_len in (5,6):
@@ -69,21 +111,31 @@ class TestReader(unittest.TestCase):
 				for batch_size in (1,2):
 					for hvd_size in (1,2):
 						for hvd_rank in range(0,hvd_size):
-							CL = [c for c,x in I.chrom_iter('Chr1', seq_len, \
+							CL = [c for c,x in I.genome_iter(seq_len, \
 								offset, batch_size, hvd_rank, hvd_size)]
 							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
 							#print CL
-							EL = [('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)) for i \
-								in range(hvd_rank*(offset*batch_size), \
-									chrom_len-seq_len+1, \
-									hvd_size*offset*batch_size)]
-							#print EL
-							self.assertEqual(CL, EL)
+							full_len = seq_len+(batch_size-1)*offset
+							s = hvd_rank*(offset*batch_size)
+							e = chrom_len-full_len+1
+							o = hvd_size*offset*batch_size
+							C1L = [I._coord2batch(('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)), seq_len, batch_size, offset) for i \
+								in range(s, e, o)]
+							C2L = [I._coord2batch(('Chr2',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)), seq_len, batch_size, offset) for i \
+								in range(s, e, o)]
+							#print C1L
+							#print C2L
+							max_len = find_max(seq_len, offset, batch_size, hvd_size)
+							if find_max(seq_len, offset, batch_size, hvd_size) != len(C1L):
+								C1L = C1L+C1L[:max_len-len(C1L)]
+								C2L = C2L+C2L[:max_len-len(C2L)]
+							#print C1L+C2L
+							self.assertEqual(CL, C1L+C2L)
 	def test_stateful_chrom_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		chrom_len = 20
 		for seq_len in (3,5):
-			for offset in (1,3):
+			for offset in (1,2):
 				for batch_size in (1,2):
 					for hvd_size in (1,2):
 						for hvd_rank in range(0,hvd_size):
@@ -101,24 +153,25 @@ class TestReader(unittest.TestCase):
 							step = seq_len
 							region_size = (num_contig_seq_per_rank-1)*offset+seq_len
 							CL = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
-								offset, batch_size, hvd_rank, hvd_size, transform=False)]
+								offset, batch_size, hvd_rank, hvd_size)]
+							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
 							#print CL
-							EL = [('Chr1',i,i+region_size) for i in range(start, end, step)]
+							EL = [I._coord2batch(('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)), seq_len, batch_size, offset) for i in range(start, end, step)]
 							#print EL
 							self.assertEqual(CL, EL)
 						if hvd_size == 2:
 							R1 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
-								offset, batch_size, 0, hvd_size, transform=False)]
+								offset, batch_size, 0, hvd_size)]
 							R2 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
-								offset, batch_size, 1, hvd_size, transform=False)]
+								offset, batch_size, 1, hvd_size)]
 							self.assertEqual(len(R1), len(R2))
 	def test_input_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		IL = list(I.genome_iter())
 		#for c, x in IL:
 		#	print(''.join(map(lambda i: constants.index2base[i[0]], x)))
-		self.assertEqual(IL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3])
-		self.assertEqual(IL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3])
+		self.assertTrue(np.all(IL[0][1][0][0] == [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.all(IL[9][1][0][0] == [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
 		self.assertEqual(len(IL), 16+16)
 	def test_input_iter_10(self):
 		I = reader.input_slicer(self.fa, self.mr1)
@@ -167,28 +220,29 @@ class TestReader(unittest.TestCase):
 		I = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		XYL = list(I.genome_iter())
 		self.assertEqual(len(XYL), (20-5+1)*2)
-		self.assertEqual(XYL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3])
-		self.assertEqual(XYL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3])
-		self.assertEqual(XYL[9][2][0][constants.gff3_f2i['+CDS']], 1)
+		self.assertTrue(np.all(XYL[0][1][0][0] == [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.all(XYL[9][1][0][0] == [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
+		self.assertTrue(XYL[9][2][0][0][constants.gff3_f2i['+CDS']], 1)
 		for i in range(10, 15):
-			self.assertEqual(XYL[i][2][0][constants.gff3_f2i['-transposable_element']], 1)
-			self.assertEqual(XYL[i][2][0][len(constants.gff3_f2i)], 3)
-			self.assertEqual(XYL[i][2][0][len(constants.gff3_f2i)+1], 7)
-		self.assertEqual(sum(XYL[0][2][0]), 0)
-		self.assertEqual(sum(XYL[1][2][0]), 0)
-		self.assertEqual(sum(XYL[16][2][0]), 0)
-		self.assertEqual(sum(XYL[8][2][2]), 11)
-		self.assertEqual(sum(XYL[8][2][1]), 2)
+			self.assertEqual(XYL[i][2][0][0][constants.gff3_f2i['-transposable_element']], 1)
+			self.assertEqual(XYL[i][2][0][0][len(constants.gff3_f2i)], 3)
+			self.assertEqual(XYL[i][2][0][0][len(constants.gff3_f2i)+1], 7)
+		self.assertEqual(sum(XYL[0][2][0][0]), 0)
+		self.assertEqual(sum(XYL[1][2][0][0]), 0)
+		self.assertEqual(sum(XYL[16][2][0][0]), 0)
+		self.assertEqual(sum(XYL[8][2][0][2]), 11)
+		self.assertEqual(sum(XYL[8][2][0][1]), 2)
 		self.assertEqual(len(XYL), 16+16)
 	def test_vote(self):
 		from functools import reduce
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		OA = writer.output_aggregator(self.fa)
-		for c,x,y in IS.genome_iter():
+		for c,x,y in IS.genome_iter(offset=2, batch_size=2):
 			#iSet = reduce(set.union, [set(np.where(b == 1)[0]) for b in y])
 			#fList = sorted([constants.gff3_i2f[i] for i in iSet])
 			#print("%s:%i-%i [%s]"%(*c, ', '.join(fList)))
-			OA.vote(*c, array=y)
+			for i in range(len(c)):
+				OA.vote(*c[0], array=y[0])
 		out_lines = OA.write_gff3()
 		with open(self.gff3,'r') as GFF3:
 			for ol, fl in zip(out_lines, GFF3.readlines()):
@@ -198,37 +252,24 @@ class TestReader(unittest.TestCase):
 					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
 		#print('\n'.join(OA.write_gff3()))
-	def test_batch_gff3(self):
-		#12345678901234567890
-		#    1234567890123456
-		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		BL = list(IS.batch_iter(batch_size=4))
+	def test_batch_new(self):
+		IS = reader.input_slicer(self.fa, self.mr1)
+		BL = list(IS.genome_iter(seq_len=5, batch_size=4))
+		#for c,x in BL: print c
 		self.assertEqual(len(BL), 4+4)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
 			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, self.n_outputs))
-	def test_batch(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.batch_iter(seq_len=5, batch_size=4))
-		#for c,x in BL: print c
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		BL = list(IS.genome_iter(seq_len=5, batch_size=4))
 		self.assertEqual(len(BL), 4+4)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
 			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
 			if IS.gff3_file:
-				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
-	def test_batch_new(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.new_batch_iter(seq_len=5, batch_size=4))
-		#for c,x in BL: print c
-		self.assertEqual(len(BL), 4+4)
-		for out in BL:
-			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
-			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
-			if IS.gff3_file:
-				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
+				self.assertEqual(np.array(out[2]).shape, (4, 5, self.n_outputs))
 	def test_batch_stateful(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
 		BL = list(IS.stateful_chrom_iter(chrom='Chr1', seq_len=5, offset=1, batch_size=2))
@@ -250,66 +291,19 @@ class TestReader(unittest.TestCase):
 				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
 	def test_batch_10(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.batch_iter(seq_len=10, batch_size=11))
-		self.assertEqual(len(BL), np.round(22/11))
-		for out in BL:
-			self.assertEqual(len(out), 2)
-			self.assertEqual(np.array(out[1]).shape, (11, 10, 10))
-	def test_batch_new_10(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.new_batch_iter(seq_len=10, batch_size=11))
+		BL = list(IS.genome_iter(seq_len=10, batch_size=11))
 		self.assertEqual(len(BL), np.round(22/11))
 		for out in BL:
 			self.assertEqual(len(out), 2)
 			self.assertEqual(np.array(out[1]).shape, (11, 10, 10))
 	def test_batch_uneven(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.batch_iter(batch_size=5))
+		BL = list(IS.genome_iter(batch_size=5))
 		#for c,x in BL: print c
-		self.assertEqual(len(BL), 7)
-		for out in BL[:-1]:
+		self.assertEqual(len(BL), 6)
+		for out in BL:
 			self.assertEqual(len(out), 2)
 			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
-		out = BL[-1]
-		self.assertEqual(np.array(out[1]).shape, (2, 5, 10))
-	def test_batch_new_uneven(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.new_batch_iter(batch_size=5))
-		#for c,x in BL: print c
-		self.assertEqual(len(BL), 8)
-		for out in BL[:3]:
-			self.assertEqual(len(out), 2)
-			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
-		for out in BL[4:7]:
-			self.assertEqual(len(out), 2)
-			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
-		for index in (3,7):
-			self.assertEqual(len(BL[index][0]), 1)
-			self.assertEqual(BL[index][1].shape, (1,5,10))
-	def test_batch_new_vs_old(self):
-		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		c_old, x_old, y_old = [], [], []
-		c_new, x_new, y_new = [], [], []
-		for cb, xb, yb in IS.new_batch_iter(seq_len=3, batch_size=5):
-			c_new += cb
-			x_new += list(xb)
-			y_new += list(yb)
-		for cb, xb, yb in IS.batch_iter(seq_len=3, batch_size=5):
-			c_old += cb
-			x_old += xb
-			y_old += list(yb)
-		#print "old"
-		#for i in c_old: print i
-		#print "new"
-		#for i in c_new: print i
-		self.assertEqual(c_old, c_new)
-		self.assertEqual(np.array(x_old).shape, np.array(x_new).shape)
-#		for i in range(len(x_old)):
-#			print c_old[i]==c_new[i], c_old[i], c_new[i]
-#			for j in range(len(x_old[i])):
-#				print np.array_equal(x_old[i][j],x_new[i][j]), x_old[i][j], x_new[i][j]
-		self.assertTrue(np.array_equal(np.array(x_old), np.array(x_new)))
-		self.assertTrue(np.array_equal(np.array(y_old), np.array(y_new)))
 	def test_same_model(self):
 		if not self.test_model: return
 		seq_len = 5
@@ -323,7 +317,7 @@ class TestReader(unittest.TestCase):
 				l1=0, l2=0, bidirectional=False, merge_mode='concat', \
 				stateful=False, hidden_list=[], save_dir='.')
 			for epoch in range(2):
-				for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
+				for cb, xb, yb in IS.genome_iter(seq_len, batch_size=20-seq_len+1):
 					mse, acc, time = m.train(xb, yb)
 					mse_lists[i].append(mse)
 			del m
@@ -332,7 +326,7 @@ class TestReader(unittest.TestCase):
 		def train_mse(IS, m, epoch=3):
 			seq_len, out_mse = 5, []
 			for e in range(epoch):
-				out_mse += [m.train(x,y)[0] for c,x,y in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1)]
+				out_mse += [m.train(x,y)[0] for c,x,y in IS.genome_iter(seq_len, batch_size=20-seq_len+1)]
 			return out_mse
 		if not self.test_model: return
 		seq_len = 5
@@ -372,28 +366,27 @@ class TestReader(unittest.TestCase):
 		if not self.test_model: return
 		batch_size = 20-self.seq_len+1
 		# create models
-		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=100, \
 			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
 			cell_type='lstm')
 		# train models
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		ISBL = list(IS.new_batch_iter(self.seq_len, batch_size))
+		ISBL = list(IS.genome_iter(self.seq_len, batch_size=batch_size))
 		#for c,x,y in ISBL:
 		#	for i in range(len(c)):
 		#		chrom, start, end = c[i]
 		#		print c[i]
 		#		for j,k in enumerate(range(start, end)):
 		#			print "%s %2i %s"%(chrom, k, a2s(x[i][j])), np.nonzero(y[i][j])[0]
-		x_batch = np.vstack(map(lambda x: x[1], ISBL))
-		y_batch = np.vstack(map(lambda x: x[2], ISBL))
 		#M.model.fit(x_batch, y_batch, batch_size=batch_size, epochs=50, shuffle=True)
 		for epoch in range(1,self.n_epoch+1):
-			mse,acc,time = M.train(x_batch, y_batch)
+			for c,x,y in ISBL:
+				mse,acc,time = M.train(x,y)
 		M.save()
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		# Vote
 		OA = writer.output_aggregator(self.fa)
-		for c, xb, yb in IS.new_batch_iter(self.seq_len, batch_size=1):
+		for c, xb, yb in IS.genome_iter(self.seq_len, batch_size=1):
 			y = yb[0]
 			y_pred = M.predict(xb)[0]
 			for feature_index in range(len(y[0])):
@@ -416,7 +409,7 @@ class TestReader(unittest.TestCase):
 		if not self.test_model: return
 		batch_size = 20-self.seq_len+1
 		# create models
-		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=100, \
 			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
 			cell_type='lstm')
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
@@ -424,7 +417,7 @@ class TestReader(unittest.TestCase):
 		# Vote
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		OA = writer.output_aggregator(self.fa)
-		for c, xb, yb in IS.new_batch_iter(self.seq_len, batch_size=1):
+		for c, xb, yb in IS.genome_iter(self.seq_len, batch_size=1):
 			y = yb[0]
 			y_pred = M.predict(xb)[0]
 			for feature_index in range(len(y[0])):

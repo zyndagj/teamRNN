@@ -173,16 +173,30 @@ class input_slicer:
 		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
 		full_len = seq_len+(batch_size-1)*offset
 		start_range = offset * batch_size * hvd_rank
-		stop_range = chrom_len - seq_len + 1
+		#stop_range = chrom_len - seq_len + 1
+		stop_range = chrom_len - full_len + 1
 		step_size = offset * batch_size * hvd_size
 		for cur in irange(start_range, stop_range, step_size):
 			cur_len = min(full_len, chrom_len-cur)
-			yield self._get_region(chrom, cur, chrom_len, chrom_quality, cur_len)
+			if self.gff3_file:
+				c,x,y = self._get_region(chrom, cur, chrom_len, chrom_quality, cur_len)
+				assert(len(y) == seq_len+(batch_size-1)*offset)
+				yb = self._list2batch_num(y, seq_len, batch_size, offset)
+			else:
+				c,x = self._get_region(chrom, cur, chrom_len, chrom_quality, cur_len)
+			#print c
+			assert(len(x) == seq_len+(batch_size-1)*offset)
+			cb = self._coord2batch(c, seq_len, batch_size, offset)
+			xb = self._list2batch_num(x, seq_len, batch_size, offset)
+			if self.gff3_file:
+				yield (cb, xb, yb)
+			else:
+				yield (cb, xb)
 	def chrom_iter_len(self, chrom, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1):
 		chrom_len = self.FA.get_reference_length(chrom)
 		full_len = seq_len+(batch_size-1)*offset
 		start_range = offset * batch_size * hvd_rank
-		stop_range = chrom_len - seq_len + 1
+		stop_range = chrom_len - full_len + 1
 		step_size = offset * batch_size * hvd_size
 		return (stop_range - start_range - 1) / step_size + 1
 	def genome_iter(self, seq_len=5, offset=1, batch_size=1, hvd_rank=0, hvd_size=1):
@@ -204,7 +218,7 @@ class input_slicer:
 					else:
 						break
 			logger.debug("Finished %s"%(chrom))
-	def _list2batch_num(self, input_list, seq_len, batch_size):
+	def _list2batch_num(self, input_list, seq_len, batch_size, offset=1):
 		#print "original"
 		#for i in input_list: print i
 		npa = np.array(input_list)
@@ -212,41 +226,19 @@ class input_slicer:
 		s0, s1 = npa.strides
 		n_inputs = npa.shape[1]
 		#print "seq_len = %i   batch_size = %i  strides = %s   inputs = %i"%(seq_len, batch_size, str(npa.strides), n_inputs)
-		ret = np.lib.stride_tricks.as_strided(npa, (batch_size, seq_len, n_inputs), (s0,s0,s1))
+		ret = np.lib.stride_tricks.as_strided(npa, (batch_size, seq_len, n_inputs), (s0*offset,s0,s1))
 		#for i in range(ret.shape[0]):
 		#	print "Batch",i
 		#	for j in ret[i,:,:]: print j
 		return ret
-	def _list2batch_str(self, input_list, seq_len, batch_size):
-		return [input_list[i:i+seq_len] for i in range(batch_size)]
-	def _coord2batch(self, coord, seq_len, batch_size):
+	def _list2batch_str(self, input_list, seq_len, batch_size, offset=1):
+		return [input_list[i:i+seq_len] for i in range(0, offset*batch_size, offset)]
+	def _coord2batch(self, coord, seq_len, batch_size, offset=1):
 		c,s,e = coord
-		return [(c,s+i,s+i+seq_len) for i in range(batch_size)]
-	def new_batch_iter(self, seq_len=5, offset=1, batch_size=50, hvd_rank=0, hvd_size=1):
-		for out in self.genome_iter(seq_len, offset, batch_size, hvd_rank, hvd_size):
-			if self.gff3_file:
-				c,x,y = out
-				#print c
-				if len(x) == seq_len+batch_size-1:
-					yb = self._list2batch_num(y, seq_len, batch_size)
-				elif len(x) >= seq_len:
-					yb = self._list2batch_num(y, seq_len, len(x)-seq_len+1)
-				else:
-					continue
-			else:
-				c,x = out
-			if len(x) == seq_len+batch_size-1:
-				cb = self._coord2batch(c, seq_len, batch_size)
-				xb = self._list2batch_num(x, seq_len, batch_size)
-			elif len(x) >= seq_len:
-				cb = self._coord2batch(c, seq_len, len(x)-seq_len+1)
-				xb = self._list2batch_num(x, seq_len, len(x)-seq_len+1)
-			else:
-				continue
-			if self.gff3_file:
-				yield (cb, xb, yb)
-			else:
-				yield (cb, xb)
+		ret = [(c,s+i,s+i+seq_len) for i in range(0,offset*batch_size,offset)]
+		#print "args: %s %i %i"%(str(coord), seq_len, batch_size)
+		#print "original: %s  return: %s"%(str(coord), str(ret))
+		return ret
 	def stateful_chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=5, hvd_rank=0, hvd_size=1, transform=True):
 		#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
 		chrom_len = self.FA.get_reference_length(chrom)
@@ -258,13 +250,14 @@ class input_slicer:
 			hvd_rank, hvd_size = 0, 1
 			num_contig_seq_per_rank = 1
 		num_batches = int((chrom_len-(num_contig_seq_per_rank*hvd_size-1)*offset)/seq_len)
-		#print "chrom_len: %i  #c_seq: %i  #batches: %i  #contigs/rank %i"%(chrom_len, num_contig_seq, num_batches, num_contig_seq_per_rank)
+		#print "chrom_len: %i  seq_len: %i  offset: %i  batch_size: %i  rank: %i  size: %i  #c_seq: %i  #batches: %i  #contigs/rank %i"%(chrom_len, seq_len, offset, batch_size, hvd_rank, hvd_size, num_contig_seq, num_batches, num_contig_seq_per_rank)
 		# chrom range
 		start = hvd_rank * offset * num_contig_seq_per_rank
 		#end = start + seq_len * num_batches + offset * (num_contig_seq_per_rank - 1)
-		end = start + seq_len * (num_batches-1) + 1
-		step = seq_len
 		region_size = (num_contig_seq_per_rank-1)*offset+seq_len
+		end = start + seq_len * (num_batches-1) + 1
+		#end = start + region_size * (num_batches-1) + 1
+		step = seq_len
 		#print "start: %i  end: %i  step: %i  region_size: %i"%(start, end, step, region_size)
 		rank_str = "Rank %i - "%(hvd_rank) if hvd_size > 1 else ''
 		logger.debug("%sWill crawl %s:%i-%i with stateful batches"%(rank_str, chrom, start, end))
@@ -276,39 +269,13 @@ class input_slicer:
 			if self.gff3_file:
 				c,x,y = out
 				#print c
-				yb = self._list2batch_num(y, seq_len, batch_size)
+				yb = self._list2batch_num(y, seq_len, batch_size, offset)
 			else:
 				c,x = out
-			assert(len(x) == seq_len+batch_size-1)
-			cb = self._coord2batch(c, seq_len, batch_size)
-			xb = self._list2batch_num(x, seq_len, batch_size)
+			assert(len(x) == seq_len+(num_contig_seq_per_rank-1)*offset)
+			cb = self._coord2batch(c, seq_len, batch_size, offset)
+			xb = self._list2batch_num(x, seq_len, batch_size, offset)
 			if self.gff3_file:
 				yield (cb, xb, yb)
 			else:
 				yield (cb, xb)
-	def batch_iter(self, seq_len=5, batch_size=50):
-		c_batch = []
-		x_batch = []
-		y_batch = []
-		for out in self.genome_iter(seq_len, offset=1):
-			if self.gff3_file:
-				c, x, y = out
-				if len(y) == seq_len:
-					y_batch.append(y)
-			else:
-				c, x = out
-			if len(x) == seq_len:
-				c_batch.append(c)
-				x_batch.append(x)
-			if len(c_batch) == batch_size:
-				if self.gff3_file:
-					yield (c_batch, x_batch, y_batch)
-					y_batch = []
-				else:
-					yield(c_batch, x_batch)
-				c_batch, x_batch = [], []
-		if c_batch:
-			if self.gff3_file:
-				yield (c_batch, x_batch, y_batch)
-			else:
-				yield (c_batch, x_batch)
