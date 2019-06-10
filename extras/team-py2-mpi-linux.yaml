@@ -1,0 +1,40 @@
+name: team-py2-mpi
+channels:
+  - defaults
+  - bioconda
+  - conda-forge
+  - zyndagj
+dependencies:
+  - python=2
+  - h5py
+  - numpy
+  - scipy
+  - matplotlib
+  - tensorflow>=1.13,<2
+  - libprotobuf=3.6.1
+  - protobuf=3.6.1
+  - markdown
+  - psutil
+  - pyyaml
+  - six
+  - scikit-learn
+  - wheel
+  - zlib
+  - xz
+  - twine
+  - pysam>0.11
+  - mkdocs
+  - quicksect
+  - samtools
+  - openssl=1.0
+  - sra-tools
+  - bsmapz
+  - cloudpickle
+#  - hmmlearn
+#  - gcc_linux-64
+#  - gxx_linux-64
+#  - gfortran_linux-64
+  - pip:
+    - pydoc-markdown
+    - Meth5py>=0.4
+    - horovod

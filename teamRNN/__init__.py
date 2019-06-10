@@ -41,13 +41,15 @@ from time import time
 import pickle
 import logging
 try:
-	import horovod.keras as hvd
+	#import horovod.keras as hvd
+	import horovod.tensorflow.keras as hvd
 	hvd.init()
+	FORMAT = "[%%(levelname)s - P%i/%i - %%(filename)s:%%(lineno)s - %%(funcName)s] %%(message)s"%(hvd.rank(), hvd.size())
 except:
 	hvd = False
+	FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
 import tensorflow as tf
 logger = logging.getLogger(__name__)
-FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
 from teamRNN import reader, constants, writer, model
 from teamRNN.util import irange
 from pysam import FastaFile
