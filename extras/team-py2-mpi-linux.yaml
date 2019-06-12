@@ -17,7 +17,6 @@ dependencies:
   - psutil
   - pyyaml
   - six
-  - scikit-learn
   - wheel
   - zlib
   - xz

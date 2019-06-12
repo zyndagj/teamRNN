@@ -220,16 +220,12 @@ def train(args):
 			M.save()
 			logger.debug("Saved model")
 	#print MSE
-	if not hvd or (hvd and hvd.rank() == 0):
-		logger.debug("Done")
+	del M
 	if hvd:
-		logger.info("Waiting on other processes")
-		barrier = hvd.allreduce(tf.constant(0))
-		with tf.Session() as sess:
-			ret = sess.run(barrier)
-		#logger.info("Shutting down horovod")
-		#hvd.shutdown()
-		#logger.debug("Horovod is shut down")
+		logger.debug("Waiting on other processes")
+		print hvd.allgather([hvd.rank()], name="Barrier")
+		logger.debug("Exiting")
+		
 	#logger.debug("Closing the tensorflow session")
 	#M.sess.close()
 

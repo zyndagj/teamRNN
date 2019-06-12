@@ -49,7 +49,7 @@ from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNN
 from tensorflow.keras.regularizers import l1, l2, l1_l2
 from tensorflow.keras.optimizers import RMSprop, Adam, SGD
 try:
-	import horovod.keras as hvd
+	import horovod.tensorflow.keras as hvd
 	#hvd.init() # Only need to do this once
 except:
 	hvd = False

@@ -11,19 +11,21 @@ dependencies:
   - scipy
   - matplotlib
   - tensorflow>=1.13,<2
+  - libprotobuf=3.6.1
+  - protobuf=3.6.1
   - markdown
   - psutil
   - pyyaml
   - six
-  - scikit-learn
   - wheel
   - zlib
   - xz
   - twine
-  - pysam
+  - pysam>0.11
   - mkdocs
   - quicksect
   - samtools
+  - openssl=1.0
   - sra-tools
   - bsmapz
 #  - hmmlearn
