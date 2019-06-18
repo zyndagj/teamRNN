@@ -14,6 +14,7 @@ logging.basicConfig(stream=logStream, level=logging.DEBUG, format=FORMAT)
 import teamRNN
 from teamRNN import reader, constants, writer, model
 from pysam import FastaFile
+from shutil import rmtree
 import numpy as np
 try:
 	from unittest.mock import patch
@@ -37,6 +38,7 @@ class TestReader(unittest.TestCase):
 		## Runs after every test function ##
 		# Wipe log
 		logStream.truncate(0)
+		if os.path.exists('mse_tmp'): rmtree('mse_tmp')
 		## Runs after every test function ##
 	def test_refcache(self):
 		RC = reader.refcache(self.fa)
@@ -97,13 +99,11 @@ class TestReader(unittest.TestCase):
 								in range(hvd_rank*(offset*batch_size), \
 									chrom_len-full_len+1, \
 									hvd_size*offset*batch_size)]
+							max_len = find_max(seq_len, offset, batch_size, hvd_size)
+							EL += EL[:max_len-len(EL)]
 							#print EL
 							self.assertEqual(CL, EL)
 	def test_genome_iter(self):
-		def find_max(seq_len, offset, batch_size, hvd_size):
-			return max([len(range(r*offset*batch_size, \
-					chrom_len-full_len+1, \
-					hvd_size*offset*batch_size)) for r in range(hvd_size)])
 		I = reader.input_slicer(self.fa, self.mr1)
 		chrom_len = 20
 		for seq_len in (5,6):
@@ -233,6 +233,67 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(sum(XYL[8][2][0][2]), 11)
 		self.assertEqual(sum(XYL[8][2][0][1]), 2)
 		self.assertEqual(len(XYL), 16+16)
+	def test_mse_interval_midpoint(self):
+		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		x,y = MI._to_midpoint(0, 10, 0.5)
+		self.assertEqual(x, [5])
+		self.assertEqual(y, [0.5])
+	def test_mse_interval_range(self):
+		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		x,y = MI._to_range(0, 10, 0.5)
+		self.assertEqual(x, [0,10])
+		self.assertEqual(y, [0.5,0.5])
+	def test_mse_interval_single(self):
+		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		MI.add_batch([('Chr1',0,10),('Chr1',10,20)], 0.5)
+		MI.add_batch([('Chr1',5,15),('Chr2',0,5)], 1.0)
+		for n,m in (('mean',np.mean), ('median',np.median), ('sum',np.sum)):
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,5,n), m([0.5]*5))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,10,n), m([0.5]*10+[1.0]*5))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,15,n), m([0.5]*15+[1.0]*10))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,20,n), m([0.5]*20+[1.0]*10))
+			self.assertEqual(MI._region_to_agg_value('Chr3',0,5,n), -1)
+			self.assertEqual(MI._region_to_agg_value('Chr2',0,10,n), m([1.0]*5))
+			self.assertEqual(MI._region_to_xy('Chr1',0,5,n), ([2.5], [m([0.5]*5)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,10,n), ([5], [m([0.5]*10+[1.0]*5)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,15,n), ([7.5], [m([0.5]*15+[1.0]*10)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,20,n), ([10], [m([0.5]*20+[1.0]*10)]))
+			self.assertEqual(MI._region_to_xy('Chr3',0,5,n), ([2.5], [-1]))
+			self.assertEqual(MI._region_to_xy('Chr2',0,10,n), ([5], [m([1.0]*5)]))
+			x, y = MI.to_array('Chr1',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[0.5]*5, [0.5]*5+[1.0]*5, [0.5]*5+[1.0]*5, [0.5]*5]))
+			x, y = MI.to_array('Chr2',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
+	def test_mse_interval_distrib(self):
+		MI0 = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		MI1 = writer.MSE_interval(self.fa, 'mse_tmp', 1)
+		MI0.add_batch([('Chr1',0,10),('Chr1',10,20)], 0.5)
+		MI1.add_batch([('Chr1',5,15),('Chr2',0,5)], 1.0)
+		MI0.dump()
+		MI1.dump()
+		MI0.load_all()
+		MI1.load_all()
+		for n,m in (('mean',np.mean), ('median',np.median), ('sum',np.sum)):
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,5,n), m([0.5]*5))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,10,n), m([0.5]*10+[1.0]*5))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,15,n), m([0.5]*15+[1.0]*10))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,20,n), m([0.5]*20+[1.0]*10))
+			self.assertEqual(MI0._region_to_agg_value('Chr3',0,5,n), -1)
+			self.assertEqual(MI0._region_to_agg_value('Chr2',0,10,n), m([1.0]*5))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,5,n), ([2.5], [m([0.5]*5)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,10,n), ([5], [m([0.5]*10+[1.0]*5)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,15,n), ([7.5], [m([0.5]*15+[1.0]*10)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,20,n), ([10], [m([0.5]*20+[1.0]*10)]))
+			self.assertEqual(MI0._region_to_xy('Chr3',0,5,n), ([2.5], [-1]))
+			self.assertEqual(MI0._region_to_xy('Chr2',0,10,n), ([5], [m([1.0]*5)]))
+			x, y = MI0.to_array('Chr1',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[0.5]*5, [0.5]*5+[1.0]*5, [0.5]*5+[1.0]*5, [0.5]*5]))
+			x, y = MI0.to_array('Chr2',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
 	def test_vote(self):
 		from functools import reduce
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
@@ -437,7 +498,6 @@ class TestReader(unittest.TestCase):
 					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
 		if os.path.exists(M.save_dir):
-			from shutil import rmtree
 			rmtree(M.save_dir)
 	def test_train_stateful_01(self):
 		def a2s(a):
@@ -542,7 +602,6 @@ class TestReader(unittest.TestCase):
 					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
 		if os.path.exists(M.save_dir):
-			from shutil import rmtree
 			rmtree(M.save_dir)
 	def test_train_cli_01(self):
 		if not self.test_model: return
@@ -592,7 +651,6 @@ class TestReader(unittest.TestCase):
 				cli_split = cli_line.rstrip('\n').split('\t')
 				self.assertEqual(test_split, cli_split)
 		if os.path.exists('test_cli'):
-			from shutil import rmtree
 			rmtree('test_cli')
 	def test_stateful_cli_01(self):
 		if not self.test_model: return
@@ -646,8 +704,13 @@ class TestReader(unittest.TestCase):
 				cli_split = cli_line.rstrip('\n').split('\t')
 				self.assertEqual(test_split, cli_split)
 		if os.path.exists(out_dir):
-			from shutil import rmtree
 			rmtree(out_dir)
+
+def find_max(seq_len, offset, batch_size, hvd_size, chrom_len=20):
+	full_len = seq_len+(batch_size-1)*offset
+	return max([len(range(r*offset*batch_size, \
+			chrom_len-full_len+1, \
+			hvd_size*offset*batch_size)) for r in range(hvd_size)])
 
 if __name__ == "__main__":
 	unittest.main()

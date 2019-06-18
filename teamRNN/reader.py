@@ -54,12 +54,15 @@ class refcache:
 				if split_line[0] == fasta_name:
 					return _split2quality(split_line)
 	def fetch(self, chrom, pos, pos2):
-		assert(pos >= self.start[chrom])
-		if pos2 > self.end[chrom]:
-			assert(pos2 <= self.chrom_lens[chrom])
+		assert(pos2 <= self.chrom_lens[chrom])
+		if pos2-pos+1 >= self.cacheSize:
+			logger.debug("Region was too large for refcache, you should consider increasing the cache size to %i"%((pos2-pos1+1)*10))
+			return self.FA.fetch(chrom, pos, pos2)
+		if pos < self.start[chrom] or pos2 > self.end[chrom]:
 			self.start[chrom] = pos
-			self.end[chrom] = pos+self.cacheSize
+			self.end[chrom] = min(pos+self.cacheSize, self.chrom_lens[chrom])
 			self.chrom_caches[chrom] = self.FA.fetch(chrom, self.start[chrom], self.end[chrom])
+		assert(pos >= self.start[chrom])
 		sI = pos-self.start[chrom]
 		eI = pos2-self.start[chrom]
 		return self.chrom_caches[chrom][sI:eI]
@@ -128,6 +131,7 @@ class gff3_interval:
 
 class input_slicer:
 	def __init__(self, fasta_file, meth_file, gff3_file='', quality=-1, ploidy=2):
+		self.fasta_file = fasta_file
 		self.FA = FastaFile(fasta_file)
 		self.M5 = Meth5py(meth_file, fasta_file)
 		self.gff3_file = gff3_file
@@ -169,6 +173,13 @@ class input_slicer:
 		else:
 			return (coord, out_slice)
 	def chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1):
+		if hvd_size > 1:
+			my_batches = self.chrom_iter_len(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size)
+			n_batches_list = [self.chrom_iter_len(chrom, seq_len, offset, batch_size, i, hvd_size) for i in range(hvd_size)]
+			max_batches = int(max(n_batches_list))
+			if hvd_rank == 0:
+				logger.debug("All work loads %s. Using %i for all ranks"%(str(n_batches_list), max_batches))
+		# TODO make this the same as genome_iter
 		chrom_len = self.FA.get_reference_length(chrom)
 		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
 		full_len = seq_len+(batch_size-1)*offset
@@ -192,6 +203,26 @@ class input_slicer:
 				yield (cb, xb, yb)
 			else:
 				yield (cb, xb)
+		if hvd_size > 1:
+			for i,cur in enumerate(irange(start_range, stop_range, step_size)):
+				if i < max_batches-my_batches:
+					cur_len = min(full_len, chrom_len-cur)
+					if self.gff3_file:
+						c,x,y = self._get_region(chrom, cur, chrom_len, chrom_quality, cur_len)
+						assert(len(y) == seq_len+(batch_size-1)*offset)
+						yb = self._list2batch_num(y, seq_len, batch_size, offset)
+					else:
+						c,x = self._get_region(chrom, cur, chrom_len, chrom_quality, cur_len)
+					#print c
+					assert(len(x) == seq_len+(batch_size-1)*offset)
+					cb = self._coord2batch(c, seq_len, batch_size, offset)
+					xb = self._list2batch_num(x, seq_len, batch_size, offset)
+					if self.gff3_file:
+						yield (cb, xb, yb)
+					else:
+						yield (cb, xb)
+				else:
+					break
 	def chrom_iter_len(self, chrom, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1):
 		chrom_len = self.FA.get_reference_length(chrom)
 		full_len = seq_len+(batch_size-1)*offset
@@ -202,21 +233,8 @@ class input_slicer:
 	def genome_iter(self, seq_len=5, offset=1, batch_size=1, hvd_rank=0, hvd_size=1):
 		for chrom in sorted(self.FA.references):
 			logger.debug("Starting %s"%(chrom))
-			if hvd_size > 1:
-				n_batches = self.chrom_iter_len(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size)
-				logger.debug("I'm going to have %i units of work for chromosome %s"%(n_batches, chrom))
-				n_batches_list = [self.chrom_iter_len(chrom, seq_len, offset, batch_size, i, hvd_size) for i in range(hvd_size)]
-				if hvd_rank == 0:
-					logger.debug("All work loads %s"%(str(n_batches_list)))
-				max_batches = int(max(n_batches_list))
 			for out in self.chrom_iter(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size):
 				yield out
-			if hvd_size > 1:
-				for i, out in enumerate(self.chrom_iter(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size)):
-					if i < max_batches-n_batches:
-						yield out
-					else:
-						break
 			logger.debug("Finished %s"%(chrom))
 	def _list2batch_num(self, input_list, seq_len, batch_size, offset=1):
 		#print "original"

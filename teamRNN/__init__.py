@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 06/07/2019
+# Last Modified: 06/18/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -51,7 +51,7 @@ except:
 import tensorflow as tf
 logger = logging.getLogger(__name__)
 from teamRNN import reader, constants, writer, model
-from teamRNN.util import irange
+from teamRNN.util import irange, fivenum
 from pysam import FastaFile
 import numpy as np
 
@@ -96,6 +96,8 @@ def main():
 	parser_train.add_argument('--l2', metavar="FLOAT", help="L2 regularizer lambda [None]", default=0, type=float)
 	parser_train.add_argument('-H', '--hidden_list', metavar="STR", help='Comma separated list of hidden layer widths used after recurrent layers', type=str)
 	parser_train.add_argument('-f', '--force', action='store_true', help='Overwrite a previously saved model')
+	parser_train.add_argument('--train', metavar="STR", help='Comma separated list of chromosomes to train on [all]', type=str)
+	parser_train.add_argument('--test', metavar="STR", help='Comma separated list of chromosomes to test on [none]', type=str)
 	#
 	parser_train.set_defaults(target_function=train)
 	#parser_train.add_argument('-', '--', action='store_true', help='')
@@ -132,6 +134,17 @@ def main():
 	# RUN target function
 	##############################################
 	args.target_function(args)
+
+def _target_checker(targets, IS, default):
+	if targets:
+		split_chroms = targets.split(',')
+		if set(split_chroms).issubset(set(IS.FA.references)):
+			return split_chroms
+		else:
+			diff = set(split_chroms).difference(set(IS.FA.refernces))
+			sys.exit("[%s] do not exist in %s"%(', '.join(diff), IS.fasta_file))
+	else:
+		return default
 
 def train(args):
 	if args.bidirectional and args.stateful:
@@ -179,53 +192,69 @@ def train(args):
 		M.restore()
 	# Open the input
 	IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy)
+	# Check target chromosomes
+	train_chroms = _target_checker(cached_args.train, IS, IS.FA.references)
+	test_chroms = _target_checker(cached_args.test, IS, [])
+	# Run
 	for E in irange(args.epochs):
-		if cached_args.stateful:
-			# do stateful
-			count = 0
-			for chrom in sorted(IS.FA.references):
-				M.model.reset_states()
-				start_time = time()
-				for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
-					MSE, acc, train_time = M.train(xb, yb)
-					count += 1
-					logger.info("Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, \
-					cb[0][0], cb[0][1], cb[-1][2], train_time, time()-start_time))
-					start_time = time()
-				M.model.reset_states()
-		else:
-			cb_buffer, xb_buffer, yb_buffer = [], [], []
-			count = 0
+		count = 0
+		MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
+		#mse_list = []
+		#if test_chroms:
+		#	OA = writer.output_aggregator(args.reference)
+		# hvd.allgather([args.hvd_rank], name="Barrier")
+		iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
+		#### Train #################################################
+		for chrom in sorted(train_chroms):
+			if cached_args.stateful: M.model.reset_states()
 			start_time = time()
-			for cb, xb, yb in IS.genome_iter(seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
-				count += 1
-				#logger.info("Got region %i - %s"%(count, str(cb)))
-				# horovod requires that batch sizes be the same
-				if hvd and len(cb) != cached_args.batch_size:
-					repeat = int(np.ceil(float(cached_args.batch_size)/xb.shape[0]))
-					xb = np.tile(xb, (repeat, 1, 1))[:cached_args.batch_size,:,:]
-					yb = np.tile(yb, (repeat, 1, 1))[:cached_args.batch_size,:,:]
-				#logger.info("Training on %s with data shapes %s %s"%(str(cb), str(xb.shape), str(yb.shape)))
+			for cb, xb, yb in iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+				assert(len(cb) == cached_args.batch_size)
 				MSE, acc, train_time = M.train(xb, yb)
-				#if not hvd or (hvd and hvd.rank() == 0):
-				#	logger.debug("Finished batch %s:%i-%i   MSE = %.3f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
-				#print count, MSE, train_time, time()-start_time
-				logger.info("Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, \
+				MI.add_batch(cb, MSE)
+				#if hvd and len(cb) != cached_args.batch_size:
+				#	logger.warn("Had to tile batch of %i to %i"%(len(cb), cached_args.batch_size))
+				#	print "Had to tile batch of %i to %i"%(len(cb), cached_args.batch_size)
+				#	repeat = int(np.ceil(float(cached_args.batch_size)/xb.shape[0]))
+				#	xb = np.tile(xb, (repeat, 1, 1))[:cached_args.batch_size,:,:]
+				#	yb = np.tile(yb, (repeat, 1, 1))[:cached_args.batch_size,:,:]
+				count += 1
+				logger.debug("TRAIN: Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, \
 					cb[0][0], cb[0][1], cb[-1][2], train_time, time()-start_time))
 				start_time = time()
-		# Print MSE
-		if not hvd or (hvd and hvd.rank() == 0):
-			logger.info("Finished epoch %3i - MSE = %.6f"%(E+1, MSE))
+			if cached_args.stateful: M.model.reset_states()
+		if train_chroms:
+			MI.write(hvd, train_chroms, 'TRAIN', E, 1000, 'mean', 'midpoint')
+		#### Test ##################################################
+		count = 0
+		del MI
+		MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
+		for chrom in sorted(test_chroms):
+			if cached_args.stateful: M.model.reset_states()
+			start_time = time()
+			for cb, xb, yb in iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+				assert(len(cb) == cached_args.batch_size)
+				MSE, acc = M.model.evaluate_on_batch(xb, yb)
+				MI.add_batch(cb, MSE)
+				count += 1
+				logger.debug("TEST: Batch-%03i MSE=%.6f %s:%i-%i TOTAL=%.1fs"%(count, \
+					MSE, cb[0][0], cb[0][1], cb[-1][2], time()-start_time))
+				start_time = time()
+			if cached_args.stateful: M.model.reset_states()
+		if test_chroms:
+			MI.write(hvd, test_chroms, 'TEST', E, 1000, 'mean', 'midpoint')
+		del MI
+		if not hvd or (hvd and args.hvd_rank == 0):
 			# Save between epochs
 			M.save()
 			logger.debug("Saved model")
-	#print MSE
 	del M
 	if hvd:
 		logger.debug("Waiting on other processes")
 		print hvd.allgather([hvd.rank()], name="Barrier")
 		logger.debug("Exiting")
-		
+	if not hvd or (hvd and hvd.rank() == 0):
+		logger.info("Done")
 	#logger.debug("Closing the tensorflow session")
 	#M.sess.close()
 
