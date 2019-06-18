@@ -108,13 +108,15 @@ class sleight_model:
 		######################################
 		# Configure the session
 		######################################
-		tacc_nodes = {'knl':(136,2), 'skx':(48,2)}
-		if os.getenv('TACC_NODE_TYPE', False) in tacc_nodes:
-			intra, inter = tacc_nodes[os.getenv('TACC_NODE_TYPE')]
-			logger.debug("Using config for TACC %s node (%i, %i)"%(os.getenv('TACC_NODE_TYPE'), intra, inter))
-			os.putenv('KMP_BLOCKTIME', '0')
-			os.putenv('KMP_AFFINITY', 'granularity=fine,noverbose,compact,1,0')
-			os.putenv('OMP_NUM_THREADS', str(intra))
+		tacc_nodes = {'knl':(136,2), 'skx':(48,2), 'hikari':(24,2)}
+		node_name = os.getenv('TACC_NODE_TYPE', False)
+		if not node_name: node_name = os.getenv('TACC_SYSTEM', False)
+		if node_name in tacc_nodes:
+			intra, inter = tacc_nodes[node_name]
+			logger.debug("Using config for TACC %s node (%i, %i)"%(node_name, intra, inter))
+			#os.putenv('KMP_BLOCKTIME', '0')
+			#os.putenv('KMP_AFFINITY', 'granularity=fine,noverbose,compact,1,0')
+			#os.putenv('OMP_NUM_THREADS', str(intra))
 			config = tf.ConfigProto(intra_op_parallelism_threads=intra, \
 					inter_op_parallelism_threads=inter)
 					#allow_soft_placement=True, device_count = {'CPU': intra})
