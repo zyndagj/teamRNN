@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/30/2019
+# Last Modified: 06/19/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -145,10 +145,11 @@ class sleight_model:
 			if self.dropout:
 				self.model.add(Dropout(self.dropout))
 		# Handel hidden layers
-		if hidden_list:
+		if hidden_list and hidden_list[0] > 0:
 			logger.debug("Appending %s TimeDistributed hidden layers"%(str(hidden_list)))
 		for hidden_neurons in hidden_list:
-			self.model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
+			if hidden_neurons > 0:
+				self.model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
 		# Final
 		self.model.add(TimeDistributed(Dense(self.n_outputs, activation='linear')))
 		#self.model.add(Dense(self.n_outputs, activation=None))
