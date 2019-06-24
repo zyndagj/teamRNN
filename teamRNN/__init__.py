@@ -234,7 +234,7 @@ def train(args):
 			start_time = time()
 			for cb, xb, yb in iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
 				assert(len(cb) == cached_args.batch_size)
-				MSE, acc = M.model.evaluate_on_batch(xb, yb)
+				MSE, acc = M.model.test_on_batch(xb, yb)
 				MI.add_batch(cb, MSE)
 				count += 1
 				logger.debug("TEST: Batch-%03i MSE=%.6f %s:%i-%i TOTAL=%.1fs"%(count, \
