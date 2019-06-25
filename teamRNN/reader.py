@@ -257,43 +257,33 @@ class input_slicer:
 		#print "args: %s %i %i"%(str(coord), seq_len, batch_size)
 		#print "original: %s  return: %s"%(str(coord), str(ret))
 		return ret
-	def stateful_chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=5, hvd_rank=0, hvd_size=1, transform=True):
-		#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
+	def stateful_chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=5, hvd_rank=0, hvd_size=1):
+		#print "seq_len: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, batch_size, hvd_size, hvd_rank)
 		chrom_len = self.FA.get_reference_length(chrom)
 		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
-		num_contig_seq = seq_len/offset if seq_len % offset == 0 else seq_len
-		num_contig_seq_per_rank = min(int(num_contig_seq/hvd_size), batch_size)
-		if not num_contig_seq_per_rank and hvd_size > 1:
-			logger.warn("Only one contiguous sequence because of sequence length and offset. All ranks will have the same sequence")
+		# Calculate the number of contiguous sequences
+		contigs_per_rank = int(batch_size/hvd_size)
+		if not contigs_per_rank and hvd_size > 1:
+			logger.warn("Using %i contiguous sequence because of batch size and worker pool size. All ranks will have the same sequence"%(batch_size))
 			hvd_rank, hvd_size = 0, 1
-			num_contig_seq_per_rank = 1
-		num_batches = int((chrom_len-(num_contig_seq_per_rank*hvd_size-1)*offset)/seq_len)
-		#print "chrom_len: %i  seq_len: %i  offset: %i  batch_size: %i  rank: %i  size: %i  #c_seq: %i  #batches: %i  #contigs/rank %i"%(chrom_len, seq_len, offset, batch_size, hvd_rank, hvd_size, num_contig_seq, num_batches, num_contig_seq_per_rank)
-		# chrom range
-		start = hvd_rank * offset * num_contig_seq_per_rank
-		#end = start + seq_len * num_batches + offset * (num_contig_seq_per_rank - 1)
-		region_size = (num_contig_seq_per_rank-1)*offset+seq_len
-		end = start + seq_len * (num_batches-1) + 1
-		#end = start + region_size * (num_batches-1) + 1
-		step = seq_len
-		#print "start: %i  end: %i  step: %i  region_size: %i"%(start, end, step, region_size)
-		rank_str = "Rank %i - "%(hvd_rank) if hvd_size > 1 else ''
-		logger.debug("%sWill crawl %s:%i-%i with stateful batches"%(rank_str, chrom, start, end))
-		for cur in irange(start, end, step):
-			out = self._get_region(chrom, cur, chrom_len, chrom_quality, region_size)
-			if not transform:
-				yield out
-				continue
+			contigs_per_rank = batch_size
+		# Calculate the number of batches for each contiguous sequence
+		max_contig_len = (2*chrom_len)/(batch_size+1)
+		n_batches = max_contig_len/seq_len
+		#print "contigs_per_rank: %i   max_contig_len: %.1f   n_batches: %i"%(contigs_per_rank, max_contig_len, n_batches)
+		# Calculate the start and end values for looping
+		starts = np.arange(batch_size)*(max_contig_len/2)
+		ends = starts+max_contig_len
+		#print "starts: [%s]   ends: [%s]"%(', '.join(map(str, starts)),', '.join(map(str, ends)))
+		for iB in irange(n_batches):
+			c, x, y = [], [], []
+			for iS in irange(contigs_per_rank*hvd_rank, contigs_per_rank*(hvd_rank+1)):
+				region_start = starts[iS]+iB*seq_len
+				out = self._get_region(chrom, region_start, chrom_len, chrom_quality, seq_len)
+				c.append(out[0])
+				x.append(out[1])
+				if self.gff3_file: y.append(out[2])
 			if self.gff3_file:
-				c,x,y = out
-				#print c
-				yb = self._list2batch_num(y, seq_len, batch_size, offset)
+				yield (c, np.array(x), np.array(y))
 			else:
-				c,x = out
-			assert(len(x) == seq_len+(num_contig_seq_per_rank-1)*offset)
-			cb = self._coord2batch(c, seq_len, batch_size, offset)
-			xb = self._list2batch_num(x, seq_len, batch_size, offset)
-			if self.gff3_file:
-				yield (cb, xb, yb)
-			else:
-				yield (cb, xb)
+				yield (c, np.array(x))

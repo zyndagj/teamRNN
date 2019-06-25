@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 06/18/2019
+# Last Modified: 06/24/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -107,7 +107,7 @@ class output_aggregator:
 		self.te_sufam_tp = np.zeros(n_sufam_ids)
 		self.te_sufam_fn = np.zeros(n_sufam_ids)
 		self.te_sufam_fp = np.zeros(n_sufam_ids)
-	def vote(self, chrom, start, end, array):
+	def vote(self, chrom, start, end, array, overwrite=False):
 		#print "VOTE:", chrom, start, end, np.nonzero(array)
 		# Split the array
 		assert(array.shape[1] == len(gff3_i2f)+2)
@@ -119,17 +119,29 @@ class output_aggregator:
 			self._load_arrays(chrom)
 		# Track features
 		#print "BEFORE", self.feature_total_array[start:end].flatten()
-		self.feature_total_array[start:end] += 1
+		if overwrite:
+			self.feature_total_array[start:end] = 1
+		else:
+			self.feature_total_array[start:end] += 1
 		#print "AFTER", self.feature_total_array[start:end].flatten()
 		if np.sum(feature_array):
-			self.feature_vote_array[start:end] += feature_array
+			if overwrite:
+				self.feature_vote_array[start:end] = feature_array
+			else:
+				self.feature_vote_array[start:end] += feature_array
 		# Track te class/family
 		if sum(te_order_array):
 			for i,v in enumerate(te_order_array):
-				self.te_order_array[start+i,v] += 1
+				if overwrite:
+					self.te_order_array[start+i,v] = 1
+				else:
+					self.te_order_array[start+i,v] += 1
 		if sum(te_sufam_array):
 			for i,v in enumerate(te_sufam_array):
-				self.te_sufam_array[start+i,v] += 1
+				if overwrite:
+					self.te_sufam_array[start+i,v] = 1
+				else:
+					self.te_sufam_array[start+i,v] += 1
 	def compare(self, chrom, start, end, pred_array, true_array):
 		assert(array.shape[1] == len(gff3_i2f)+2)
 		assert(pred_array.shape == true_array.shape)

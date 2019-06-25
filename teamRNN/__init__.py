@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 06/18/2019
+# Last Modified: 06/24/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -310,7 +310,7 @@ def classify(args):
 				for c, x, yp in zip(cb, xb, y_pred_batch):
 					chrom,s,e = c
 					#for i in range(s,e): print (chrom,i), non_zero(yp[i-s])
-					OA.vote(*c, array=yp)
+					OA.vote(*c, array=yp, overwrite=True)
 			M.model.reset_states()
 	else:
 		for cb, xb in IS.genome_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):

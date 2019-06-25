@@ -134,37 +134,42 @@ class TestReader(unittest.TestCase):
 	def test_stateful_chrom_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		chrom_len = 20
-		for seq_len in (3,5):
-			for offset in (1,2):
-				for batch_size in (1,2):
-					for hvd_size in (1,2):
-						for hvd_rank in range(0,hvd_size):
-							size, rank = hvd_size, hvd_rank
-							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
-							num_contig_seq = seq_len/offset if seq_len % offset == 0 else seq_len
-							num_contig_seq_per_rank = min(int(num_contig_seq/size), batch_size)
-							if not num_contig_seq_per_rank and size > 1:
-								rank, size = 0, 1
-								num_contig_seq_per_rank = 1
-							num_batches = int((chrom_len-(num_contig_seq_per_rank*size-1)*offset)/seq_len)
-							# chrom range
-							start = rank * offset * num_contig_seq_per_rank
-							end = start + seq_len * (num_batches-1) + 1
-							step = seq_len
-							region_size = (num_contig_seq_per_rank-1)*offset+seq_len
-							CL = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
-								offset, batch_size, hvd_rank, hvd_size)]
-							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
-							#print CL
-							EL = [I._coord2batch(('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)), seq_len, batch_size, offset) for i in range(start, end, step)]
-							#print EL
-							self.assertEqual(CL, EL)
-						if hvd_size == 2:
-							R1 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
-								offset, batch_size, 0, hvd_size)]
-							R2 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
-								offset, batch_size, 1, hvd_size)]
-							self.assertEqual(len(R1), len(R2))
+		chrom_quality = I.RC.chrom_qualities['Chr1']
+		for seq_len in (2,5):
+			for batch_size in (1,3,4):
+				for hvd_size in (1,2):
+					for hvd_rank in range(0,hvd_size):
+						size, rank = hvd_size, hvd_rank
+						#print "seq_len: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, batch_size, hvd_size, hvd_rank)
+						contigs_per_rank = int(batch_size/hvd_size)
+						if not contigs_per_rank and hvd_size > 1:
+							rank, size = 0, 1
+							contigs_per_rank = batch_size
+						max_contig_len = (2*chrom_len)/(batch_size+1)
+						n_batches = int(max_contig_len/seq_len)
+						starts = np.arange(batch_size)*(max_contig_len/2)
+						ends = starts+max_contig_len
+						EL = []
+						for iB in range(n_batches):
+							c = []
+							for iS in range(contigs_per_rank*rank, contigs_per_rank*(rank+1)):
+								region_start = starts[iS]+iB*seq_len
+								c.append(I._get_region('Chr1', region_start, chrom_len, chrom_quality, seq_len)[0])
+							EL.append(c)
+						CL = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, hvd_rank, hvd_size)]
+			
+						#print CL
+						#print EL
+						for c,x in I.stateful_chrom_iter('Chr1', seq_len, 1, batch_size, hvd_rank, hvd_size):
+							self.assertEqual(x.shape, (contigs_per_rank, seq_len, 10))
+						self.assertEqual(CL, EL)
+					if hvd_size == 2:
+						R1 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, 0, hvd_size)]
+						R2 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, 1, hvd_size)]
+						self.assertEqual(len(R1), len(R2))
 	def test_input_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		IL = list(I.genome_iter())
@@ -333,11 +338,11 @@ class TestReader(unittest.TestCase):
 				self.assertEqual(np.array(out[2]).shape, (4, 5, self.n_outputs))
 	def test_batch_stateful(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.stateful_chrom_iter(chrom='Chr1', seq_len=5, offset=1, batch_size=2))
+		BL = list(IS.stateful_chrom_iter(chrom='Chr1', seq_len=5, batch_size=2))
 		#for c,x in BL:
 		#	print c
 		#	for seq in x: print seq
-		self.assertEqual(len(BL), 3)
+		self.assertEqual(len(BL), 2)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
 			if IS.gff3_file:
@@ -505,52 +510,38 @@ class TestReader(unittest.TestCase):
 		def non_zero(a):
 			return ' '.join(["%i:%i"%(i,a[i]) for i in np.nonzero(a)[0]])
 		if not self.test_model: return
-		seq_len, batch_size = 6, 3
+		seq_len, batch_size = 4, 4
 		# create models
 		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
 			learning_rate=0.01, bidirectional=False, save_dir='test_model', \
 			cell_type='lstm', stateful=batch_size)
 		# train models
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		#M.model.fit(x_batch, y_batch, batch_size=batch_size, epochs=50, shuffle=True)
-		for epoch in range(1,100+1):
-			#bi = np.random.permutation(batch_size)
-			bi = np.arange(batch_size)
+		for epoch in range(1,50+1):
+			M.model.reset_states()
 			for chrom in sorted(IS.FA.references):
 				for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, batch_size):
-					mse,acc,time = M.train(xb[bi,:,:],yb[bi,:,:])
+					mse,acc,time = M.train(xb,yb)
 				M.model.reset_states()
 			#print epoch, mse
-		#print mse
 		M.save()
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		# Vote
 		OA = writer.output_aggregator(self.fa)
 		for chrom in sorted(IS.FA.references):
 			M.model.reset_states()
-			for c, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, 1):
-				chrom,s,e = c[0]
-				xb = np.tile(xb, (batch_size,1,1))
+			for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, batch_size=4):
+				#xb = np.tile(xb, (batch_size,1,1))
 				#print xb.shape
-				for i in range(1,batch_size):
-					self.assertTrue(np.array_equal(xb[0], xb[i]))
-				y = yb[0]
 				y_pred_batch = M.predict(xb)
-				y_pred = y_pred_batch[0]
-				#for i in range(s,e):
-				#	print (chrom, i)
-				#	print "actual", non_zero(y[i-s])
-				#	print "pred 0", non_zero(y_pred_batch[0][i-s])
-				#	print "pred 1", non_zero(y_pred_batch[1][i-s])
-				for i in range(1,batch_size):
-					self.assertTrue(np.array_equal(y_pred_batch[0], y_pred_batch[1]))
-				for feature_index in range(len(y[0])):
-					ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
-					yps = ', '.join([str(y_pred[bi][feature_index]) for bi in range(len(y))])
-					if ys != yps:
-						print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
-				self.assertTrue(np.array_equal(y, y_pred))
-				OA.vote(*c[0], array=y_pred)
+				for c, x, y, yp in zip(cb, xb, yb, y_pred_batch):
+					#for feature_index in range(len(y[0])):
+					#	ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+					#	yps = ', '.join([str(yp[bi][feature_index]) for bi in range(len(y))])
+					#	if ys != yps:
+					#		print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0], c[1], c[2], feature_index, ys, yps))
+					#self.assertTrue(np.array_equal(y, yp))
+					OA.vote(*c, array=yp, overwrite=True)
 		# Compare
 		out_lines = OA.write_gff3()
 		with open(self.gff3,'r') as GFF3:
@@ -562,7 +553,7 @@ class TestReader(unittest.TestCase):
 					self.assertEqual(ols, fls)
 	def test_train_stateful_02(self):
 		if not self.test_model: return
-		seq_len, batch_size = 6, 3
+		seq_len, batch_size = 4,4
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		# create models
 		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
@@ -574,24 +565,16 @@ class TestReader(unittest.TestCase):
 		OA = writer.output_aggregator(self.fa)
 		for chrom in sorted(IS.FA.references):
 			M.model.reset_states()
-			for c, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, 1):
-				chrom,s,e = c[0]
-				xb = np.tile(xb, (batch_size,1,1))
-				#print xb.shape
-				for i in range(1,batch_size):
-					self.assertTrue(np.array_equal(xb[0], xb[i]))
-				y = yb[0]
+			for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, batch_size=4):
 				y_pred_batch = M.predict(xb)
-				y_pred = y_pred_batch[0]
-				for i in range(1,batch_size):
-					self.assertTrue(np.array_equal(y_pred_batch[0], y_pred_batch[1]))
-				for feature_index in range(len(y[0])):
-					ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
-					yps = ', '.join([str(y_pred[bi][feature_index]) for bi in range(len(y))])
-					if ys != yps:
-						print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
-				self.assertTrue(np.array_equal(y, y_pred))
-				OA.vote(*c[0], array=y_pred)
+				for c, x, y, yp in zip(cb, xb, yb, y_pred_batch):
+					#for feature_index in range(len(y[0])):
+					#	ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+					#	yps = ', '.join([str(yp[bi][feature_index]) for bi in range(len(y))])
+					#	if ys != yps:
+					#		print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0], c[1], c[2], feature_index, ys, yps))
+					#self.assertTrue(np.array_equal(y, yp))
+					OA.vote(*c, array=yp, overwrite=True)
 		# Compare
 		out_lines = OA.write_gff3()
 		with open(self.gff3,'r') as GFF3:
@@ -654,16 +637,16 @@ class TestReader(unittest.TestCase):
 			rmtree('test_cli')
 	def test_stateful_cli_01(self):
 		if not self.test_model: return
-		out_dir, lr, sl = 'test_stateful_cli', '0.01', '6'
+		out_dir, lr, sl = 'test_stateful_cli', '0.01', '4'
 		testArgs = ['teamRNN', \
 			'-R', self.fa, \
 			'-D', out_dir, \
 			'-N', 'plain', \
 			'-M', self.mr1, \
 			'train', \
-			'-B', '1', \
+			'-B', '4', \
 			'-A', self.gff3, \
-			'-E', '40', \
+			'-E', '100', \
 			'-r', lr, \
 			'-l', '1', \
 			'-L', sl, \
@@ -676,7 +659,7 @@ class TestReader(unittest.TestCase):
 		splitOut = output.split('\n')
 		self.assertTrue('Done' in splitOut[-2])
 		#for f in glob('test_cli/*'): print f
-		self.assertTrue(os.path.exists('%s/plain_s%sx10_o68_1xlstm80_stateful1_learn%s_drop0.h5'%(out_dir, sl, lr)))
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o68_1xlstm80_stateful4_learn%s_drop0.h5'%(out_dir, sl, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
 	def test_stateful_cli_02(self):
 		if not self.test_model: return
