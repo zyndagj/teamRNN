@@ -42,6 +42,7 @@ import os, psutil, random
 os.putenv('TF_CPP_MIN_LOG_LEVEL','3')
 import tensorflow as tf
 tf.logging.set_verbosity(tf.logging.ERROR)
+from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.client import device_lib
 from tensorflow.keras.backend import set_session, clear_session
 from tensorflow.keras.models import load_model, Sequential
@@ -118,8 +119,11 @@ class sleight_model:
 			#os.putenv('KMP_AFFINITY', 'granularity=fine,noverbose,compact,1,0')
 			#os.putenv('OMP_NUM_THREADS', str(intra))
 			config = tf.ConfigProto(intra_op_parallelism_threads=intra, \
-					inter_op_parallelism_threads=inter)
+					inter_op_parallelism_threads=inter, \
+					log_device_placement=False, allow_soft_placement=True)
 					#allow_soft_placement=True, device_count = {'CPU': intra})
+			off = rewriter_config_pb2.RewriterConfig.OFF
+			config.graph_options.rewrite_options.arithmetic_optimization = off
 			sess = tf.Session(config=config)
 			set_session(sess)  # set this TensorFlow session as the default session for Keras
 		elif self.gpu:

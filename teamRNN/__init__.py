@@ -224,7 +224,7 @@ def train(args):
 				start_time = time()
 			if cached_args.stateful: M.model.reset_states()
 		if train_chroms:
-			MI.write(hvd, train_chroms, 'TRAIN', E, 1000, 'mean', 'midpoint')
+			MI.write(hvd, train_chroms, 'TRAIN', E, 10000, 'mean', 'midpoint')
 		#### Test ##################################################
 		count = 0
 		del MI
@@ -242,7 +242,7 @@ def train(args):
 				start_time = time()
 			if cached_args.stateful: M.model.reset_states()
 		if test_chroms:
-			MI.write(hvd, test_chroms, 'TEST', E, 1000, 'mean', 'midpoint')
+			MI.write(hvd, test_chroms, 'TEST', E, 10000, 'mean', 'midpoint')
 		del MI
 		if not hvd or (hvd and args.hvd_rank == 0):
 			# Save between epochs
