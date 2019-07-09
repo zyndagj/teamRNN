@@ -229,18 +229,29 @@ def train(args):
 		count = 0
 		del MI
 		MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
+		if cached_args.stateful:
+			M.sync_stateful_online()
+			test_model = M.test_model
+		else:
+			test_model = M.model
+		test_batch_size = 1 if cached_args.stateful else cached_args.batch_size
+		logger.debug("Testing with a batch size of %i"%(test_batch_size))
 		for chrom in sorted(test_chroms):
-			if cached_args.stateful: M.model.reset_states()
-			start_time = time()
-			for cb, xb, yb in iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
-				assert(len(cb) == cached_args.batch_size)
-				MSE, acc = M.model.test_on_batch(xb, yb)
+			if cached_args.stateful: test_model.reset_states()
+			chrom_time, start_time = time(), time()
+			for cb, xb, yb in iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=test_batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+				if cached_args.stateful:
+					assert(len(cb) == 1)
+				else:
+					assert(len(cb) == cached_args.batch_size)
+				MSE, acc = test_model.test_on_batch(xb, yb)
 				MI.add_batch(cb, MSE)
 				count += 1
 				logger.debug("TEST: Batch-%03i MSE=%.6f %s:%i-%i TOTAL=%.1fs"%(count, \
 					MSE, cb[0][0], cb[0][1], cb[-1][2], time()-start_time))
 				start_time = time()
-			if cached_args.stateful: M.model.reset_states()
+			print "Finished testing %s in %i seconds"%(chrom, int(time()-chrom_time))
+			if cached_args.stateful: test_model.reset_states()
 		if test_chroms:
 			MI.write(hvd, test_chroms, 'TEST', E, 10000, 'mean', 'midpoint')
 		del MI

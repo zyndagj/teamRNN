@@ -88,6 +88,8 @@ class sleight_model:
 		self.cell_options = {'rnn':SimpleRNN, 'lstm':CuDNNLSTM if self.gpu else LSTM}
 		# Additional layers
 		self.hidden_list = hidden_list # List of hidden layer sizes
+		# Holder variable for stateful model test
+		self.test = False
 		# TODO remake this name
 		self.param_name = self._gen_name()
 		if save_dir[0] == '/':
@@ -115,9 +117,10 @@ class sleight_model:
 		if node_name in tacc_nodes:
 			intra, inter = tacc_nodes[node_name]
 			logger.debug("Using config for TACC %s node (%i, %i)"%(node_name, intra, inter))
-			#os.putenv('KMP_BLOCKTIME', '0')
-			#os.putenv('KMP_AFFINITY', 'granularity=fine,noverbose,compact,1,0')
-			#os.putenv('OMP_NUM_THREADS', str(intra))
+			os.putenv('KMP_BLOCKTIME', '0')
+			os.putenv('TF_DISABLE_MKL', '1')
+			os.putenv('KMP_AFFINITY', 'granularity=fine,noverbose,compact,1,0')
+			os.putenv('OMP_NUM_THREADS', str(intra))
 			config = tf.ConfigProto(intra_op_parallelism_threads=intra, \
 					inter_op_parallelism_threads=inter, \
 					log_device_placement=False, allow_soft_placement=True)
@@ -139,39 +142,42 @@ class sleight_model:
 		######################################
 		# Build graph
 		######################################
-		self.model = Sequential()
+		self.model = self._build_graph()
+		######################################
+		# Define optimizer and compile
+		######################################
+		self._compile_graph(self.model, 'mse', 'adam')
+		# Done
+	def _build_graph(self, test=False):
+		model = Sequential()
 		logger.debug("Creating %i %slayers with %s%% dropout after each layer"%(self.n_layers, "bidirectional " if self.bidirectional else "", self.dropout))
 		if self.bidirectional:
 			logger.debug("Bidirectional layers will be merged with %s"%(self.merge_mode))
 		for i in range(self.n_layers):
-			self.model.add(self._gen_rnn_layer(i))
-			# Add dropout between layers
-			if self.dropout:
-				self.model.add(Dropout(self.dropout))
+			model.add(self._gen_rnn_layer(i, test))
+			# Dropout is added at the cell level
 		# Handel hidden layers
-		if hidden_list and hidden_list[0] > 0:
-			logger.debug("Appending %s TimeDistributed hidden layers"%(str(hidden_list)))
-		for hidden_neurons in hidden_list:
+		if self.hidden_list and self.hidden_list[0] > 0:
+			logger.debug("Appending %s TimeDistributed hidden layers"%(str(self.hidden_list)))
+		for hidden_neurons in self.hidden_list:
 			if hidden_neurons > 0:
-				self.model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
+				model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
 		# Final
-		self.model.add(TimeDistributed(Dense(self.n_outputs, activation='linear')))
-		#self.model.add(Dense(self.n_outputs, activation=None))
-		######################################
-		# Define optimizer and compile
-		######################################
-		loss_functions = ('mean_squared_error', 'mean_squared_logarithmic_error', 'categorical_crossentropy')
-		# sparse_categorical_crossentropy - wants a single output
-		loss_func = loss_functions[0]
-		#opt = SGD(lr=self.learning_rate)
-		opt = Adam(lr=self.learning_rate)
-		logger.debug("Using the adam optimizer with a learning rate of %s and the %s loss function"%(str(self.learning_rate), loss_func))
-		#opt = RMSprop(self.learning_rate)
+		model.add(TimeDistributed(Dense(self.n_outputs, activation='linear')))
+		return model
+	def _compile_graph(self, model, loss_func='mse', opt_func='adam'):
+		loss_functions = {'mse':'mean_squared_error', \
+				'msle':'mean_squared_logarithmic_error', \
+				'cc':'categorical_crossentropy'}
+				#'scc':'sparse_categorical_crossentropy'} - wants a single output
+		opt_functions = {'adam':Adam, 'sgd':SGD, 'rms':RMSprop}
+		logger.debug("Using the %s optimizer with a learning rate of %s and the %s loss function"%(opt_func, str(self.learning_rate), loss_func))
+		opt = opt_functions[opt_func](lr=self.learning_rate)
 		if hvd:
 			opt = hvd.DistributedOptimizer(opt)
 			self.callbacks = [hvd.callbacks.BroadcastGlobalVariablesCallback(0)]
-		self.model.compile(loss=loss_func, optimizer=opt, metrics=['accuracy'])
-		# Done
+		# compile
+		model.compile(loss=loss_functions[loss_func], optimizer=opt, metrics=['accuracy'])
 	def _gen_name(self):
 		out_name = "%s_s%ix%i_o%i"%(self.name, self.n_steps, self.n_inputs, self.n_outputs)
 		cell_prefix = 'bi' if self.bidirectional else ''
@@ -197,49 +203,51 @@ class sleight_model:
 		if self.hidden_list:
 			out_name += '_'+'h'.join(map(str, self.hidden_list))
 		return out_name
-	def _gen_rnn_layer(self, num=0):
+	def _gen_rnn_layer(self, num=0, test=False):
 		# I may need to modify this for "use_bias"
 		if num == 0:
 			input_shape = (self.n_steps, self.n_inputs)
 			if self.bidirectional:
 				if self.stateful:
-					bis = (self.stateful, self.n_steps, self.n_inputs)
-					return Bidirectional(self._gen_cell_layer(num+1), \
-						merge_mode=self.merge_mode, batch_input_shape=bis)
+					sys.exit("Should never get here")
+					#bis = (self.stateful, self.n_steps, self.n_inputs)
+					#return Bidirectional(self._gen_cell_layer(num+1), \
+					#	merge_mode=self.merge_mode, batch_input_shape=bis)
 				return Bidirectional(self._gen_cell_layer(num+1), \
 					merge_mode=self.merge_mode, input_shape=input_shape)
 			else:
-				return self._gen_cell_layer(num)
+				return self._gen_cell_layer(num, test)
 		else:
 			if self.bidirectional:
-				return Bidirectional(self._gen_cell_layer(num), merge_mode=self.merge_mode)
+				return Bidirectional(self._gen_cell_layer(num, test), merge_mode=self.merge_mode)
 			else:
-				return self._gen_cell_layer(num)
-	def _gen_cell_layer(self, num=0):
+				return self._gen_cell_layer(num, test)
+	def _gen_cell_layer(self, num=0, test=False):
 		cell_func = self.cell_options[self.cell_type]
 		if num == 0 and not self.bidirectional:
 			input_shape = (self.n_steps, self.n_inputs)
 			if self.stateful:
-				bis = (self.stateful, self.n_steps, self.n_inputs)
+				if test:
+					bis = (1, self.n_steps, self.n_inputs)
+				else:
+					bis = (self.stateful, self.n_steps, self.n_inputs)
 				return cell_func(self.n_neurons, return_sequences=True, \
-					use_bias=False, \
 					kernel_regularizer=self._gen_reg('kernel'), \
 					bias_regularizer=self._gen_reg('bias'), \
 					activity_regularizer=self._gen_reg('activity'), \
 					stateful=bool(self.stateful), \
-					batch_input_shape=bis)
+					batch_input_shape=bis, dropout=self.dropout)
 			return cell_func(self.n_neurons, return_sequences=True, input_shape=input_shape, \
 				kernel_regularizer=self._gen_reg('kernel'), \
 				bias_regularizer=self._gen_reg('bias'), \
 				activity_regularizer=self._gen_reg('activity'), \
-				stateful=bool(self.stateful))
+				stateful=bool(self.stateful), dropout=self.dropout)
 		else:
 			return cell_func(self.n_neurons, return_sequences=True, \
-				use_bias=False, \
 				kernel_regularizer=self._gen_reg('kernel'), \
 				bias_regularizer=self._gen_reg('bias'), \
 				activity_regularizer=self._gen_reg('activity'), \
-				stateful=bool(self.stateful))
+				stateful=bool(self.stateful), dropout=self.dropout)
 	def _gen_reg(self, name):
 		if name == 'kernel' and self.reg_kernel:
 			return self._gen_l1_l2()
@@ -265,6 +273,21 @@ class sleight_model:
 			if not os.path.exists(self.save_dir):
 				os.makedirs(self.save_dir)
 			self.model.save_weights(self.save_file)
+	def _make_stateful_model(self):
+		self.test_model = self._build_graph(test=True)
+		self._compile_graph(self.test_model, 'mse', 'adam')
+		logger.debug("Created test model")
+		self.test = True
+	def sync_stateful_online(self):
+		if self.stateful:
+			if not self.test:
+				self._make_stateful_model()
+			current_weights = self.model.get_weights()
+			# update weights of new model
+			self.test_model.set_weights(current_weights)
+			logger.debug("Updated weights")
+		else:
+			logger.error("This should only be used with stateful models")
 	def restore(self):
 		self.model.load_weights(self.save_file)
 		logger.debug("Restored model from %s"%(self.save_file))

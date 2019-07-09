@@ -144,8 +144,8 @@ class input_slicer:
 		self.FA.close()
 		self.M5.close()
 #>C1 dna:chromosome chromosome:BOL:C1:1:43764888:1 REF
-	def _get_region(self, chrom, cur, chrom_len, chrom_quality, seq_len):
-		logger.debug("Fetching %s:%i-%i"%(chrom, cur, cur+seq_len))
+	def _get_region(self, chrom, cur, chrom_len, chrom_quality, seq_len, print_region=False):
+		if print_region: logger.debug("Fetching %s:%i-%i"%(chrom, cur, cur+seq_len))
 		#print "Fetching %s:%i-%i"%(chrom, cur, cur+seq_len)
 		coord = (chrom, cur, cur+seq_len)
 		seq = self.RC.fetch(chrom, cur, cur+seq_len)

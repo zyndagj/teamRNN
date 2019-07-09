@@ -432,9 +432,9 @@ class TestReader(unittest.TestCase):
 		if not self.test_model: return
 		batch_size = 20-self.seq_len+1
 		# create models
-		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=100, \
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
 			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
-			cell_type='lstm')
+			cell_type='rnn')
 		# train models
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		ISBL = list(IS.genome_iter(self.seq_len, batch_size=batch_size))
@@ -475,9 +475,9 @@ class TestReader(unittest.TestCase):
 		if not self.test_model: return
 		batch_size = 20-self.seq_len+1
 		# create models
-		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=100, \
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
 			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
-			cell_type='lstm')
+			cell_type='rnn')
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		M.restore()
 		# Vote
