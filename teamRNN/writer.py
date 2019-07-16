@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 06/24/2019
+# Last Modified: 07/15/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -48,6 +48,7 @@ import re
 from quicksect import IntervalTree
 from glob import glob
 from collections import defaultdict as dd
+from itertools import izip
 
 class output_aggregator:
 	'''
@@ -247,24 +248,53 @@ class MSE_interval:
 		self.mse_dict = dd(IntervalTree)
 		self.rank = hvd_rank
 		self.out_dir = out_dir
-		self.regex = re.compile(r"mse__([>\w]+)__(\d+).pkl")
+		self.regex = re.compile(r"mse__([>\w]+)__(\d+)\.")
 		self.fasta_file = fasta_file
 		with FastaFile(fasta_file) as FA:
 			self.chrom_dict = {c:FA.get_reference_length(c) for c in FA.references}
+		self.mse_array_dict = {}
+		self.mse_count_dict = {}
 		self.agg_method = {'median':np.median, 'mean':np.mean, 'sum':np.sum}
 		self.c_method = {'midpoint':self._to_midpoint, 'range':self._to_range}
 	def add_batch(self, cb, mse_value):
 		for chrom, s, e in cb:
 			self.mse_dict[chrom].add(s,e,mse_value)
+	def add_batch_array(self, cb, mse_value):
+		for chrom, s, e in cb:
+			self._add_array_value(c, s, e, mse_value)
+	def add_predict_batch(self, cb, yb, ypb):
+		mse_list, first_chrom = [], cb[0][0]
+		for c, y, yp in izip(cb, yb, ypb):
+			chrom, s, e = c
+			mse = np.square(y - yp).mean()
+			#print c, y, yp, mse
+			mse_list.append(mse)
+			self._add_array_value(chrom, s, e, mse)
+		s, e = cb[0][1], cb[-1][2]
+		fns = map(str,fivenum(mse_list))
+		logger.debug("%s:%i-%i contained the following MSE distribution [%s]"%(chrom, s, e, ', '.join(fns)))
+	def _add_array_value(self, chrom, s, e, v):
+		if chrom not in self.mse_array_dict:
+			self._create_mse_array(chrom)
+		self.mse_array_dict[chrom][s:e] += v
+		self.mse_count_dict[chrom][s:e] += 1
 	def dump(self):
+		if not os.path.exists(self.out_dir): os.makedirs(self.out_dir)
 		for chrom in self.mse_dict:
-			if not os.path.exists(self.out_dir): os.makedirs(self.out_dir)
 			out_name = os.path.join(self.out_dir, 'mse__%s__%i.pkl'%(chrom, self.rank))
 			self.mse_dict[chrom].dump(out_name)
+		for chrom in self.mse_array_dict:
+			out_name = os.path.join(self.out_dir, 'mse__%s__%i.npz'%(chrom, self.rank))
+			np.savez_compressed(out_name, v=self.mse_array_dict[chrom], \
+				c=self.mse_array_dict[chrom])
+	def _create_mse_array(self, chrom):
+		nbases = self.chrom_dict[chrom]
+		self.mse_array_dict[chrom] = np.zeros(nbases, dtype=np.float)
+		self.mse_count_dict[chrom] = np.zeros(nbases, dtype=np.uint16)
 	def __del__(self):
-		for p_file in glob("%s/mse__*__%i.pkl"%(self.out_dir, self.rank)):
-			logger.debug("Deleting %s"%(p_file))
-			os.remove(p_file)
+		for fname in glob("%s/mse__*__%i.*"%(self.out_dir, self.rank)):
+			logger.debug("Deleting %s"%(fname))
+			os.remove(fname)
 	def load_all(self):
 		if self.rank == 0:
 			for p_file in glob("%s/mse__*__*.pkl"%(self.out_dir)):
@@ -276,24 +306,47 @@ class MSE_interval:
 					self.mse_dict[chrom].load(p_file)
 				else:
 					logger.debug("skipping %s"%(p_file))
+			for npy_file in glob("%s/mse__*__*.npz"%(self.out_dir)):
+				chrom, rank = self.regex.search(npy_file).groups()
+				assert(chrom in self.chrom_dict.keys())
+				if chrom not in self.mse_array_dict:
+					self._create_mse_array(chrom)
+				rank = int(rank)
+				if rank != self.rank:
+					logger.debug("loading %s"%(npy_file))
+					loaded = np.load(npy_file)
+					self.mse_array_dict[chrom] += loaded['v'].astype(np.float)
+					self.mse_count_dict[chrom] += loaded['c'].astype(np.uint16)
+				else:
+					logger.debug("skipping %s"%(npy_file))
 	def _to_midpoint(self, s, e, v):
 		half = (e-s)/2.0
 		x, y = [s+half], [v]
 		return x,y
 	def _to_range(self, s, e, v):
-		x = [s, e]
-		y = [v, v]
+		x, y = [s, e], [v, v]
 		return x,y
 	def _region_to_agg_value(self, chrom, start, end, method='mean'):
 		values = []
-		if chrom not in self.mse_dict:
+		if chrom in self.mse_dict:
+			for interval in self.mse_dict[chrom].search(start, end):
+				v = interval.data
+				assert(not hasattr(v, '__iter__'))
+				N = min(end, interval.end)-max(start, interval.start)
+				values += [v]*N
+		elif chrom in self.mse_array_dict:
+				vals = self.mse_array_dict[chrom][start:end]
+				counts = self.mse_count_dict[chrom][start:end]
+				#print chrom, start, end, vals
+				if sum(counts) == 0: return -1.0
+				if method == 'mean':
+					return vals.sum()/counts.sum()
+				elif method == 'sum':
+					return vals.sum()
+		else:
 			return -1
-		for interval in self.mse_dict[chrom].search(start, end):
-			v = interval.data
-			assert(not hasattr(v, '__iter__'))
-			N = min(end, interval.end)-max(start, interval.start)
-			values += [v]*N
-		agg_value = self.agg_method[method](values) if values else -1
+		#print chrom, start, end, values
+		agg_value = self.agg_method[method](values) if len(values) else -1
 		return agg_value
 	def _region_to_xy(self, c, s, e, method='mean', coords='midpoint'):
 		agg_value = self._region_to_agg_value(c, s, e, method)

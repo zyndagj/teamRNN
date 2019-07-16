@@ -299,6 +299,65 @@ class TestReader(unittest.TestCase):
 			x, y = MI0.to_array('Chr2',width=5, method=n)
 			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
 			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
+	def test_mse_array_single(self):
+		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		MI.add_predict_batch([('Chr1',0,10),('Chr1',10,20)], \
+			np.array([[[0,1],[1,0]], [[0,1],[1,0]]]), \
+			np.array([[[1,0],[1,0]], [[1,0],[1,0]]])) # 0.5
+		MI.add_predict_batch([('Chr1',5,15),('Chr2',0,5)], \
+			np.array([[[0,1],[1,0]], [[0,1],[1,0]]]), \
+			np.array([[[1,0],[0,1]], [[1,0],[0,1]]])) # 1.0
+		for n,m in (('mean',np.mean), ('sum',np.sum)):
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,5,n), m([0.5]*5))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,10,n), m([0.5]*10+[1.0]*5))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,15,n), m([0.5]*15+[1.0]*10))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,20,n), m([0.5]*20+[1.0]*10))
+			self.assertEqual(MI._region_to_agg_value('Chr3',0,5,n), -1)
+			self.assertEqual(MI._region_to_agg_value('Chr2',0,10,n), m([1.0]*5))
+			self.assertEqual(MI._region_to_xy('Chr1',0,5,n), ([2.5], [m([0.5]*5)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,10,n), ([5], [m([0.5]*10+[1.0]*5)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,15,n), ([7.5], [m([0.5]*15+[1.0]*10)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,20,n), ([10], [m([0.5]*20+[1.0]*10)]))
+			self.assertEqual(MI._region_to_xy('Chr3',0,5,n), ([2.5], [-1]))
+			self.assertEqual(MI._region_to_xy('Chr2',0,10,n), ([5], [m([1.0]*5)]))
+			x, y = MI.to_array('Chr1',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[0.5]*5, [0.5]*5+[1.0]*5, [0.5]*5+[1.0]*5, [0.5]*5]))
+			x, y = MI.to_array('Chr2',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
+	def test_mse_array_distrib(self):
+		MI0 = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		MI1 = writer.MSE_interval(self.fa, 'mse_tmp', 1)
+		MI0.add_predict_batch([('Chr1',0,10),('Chr1',10,20)], \
+			np.array([[[0,1],[1,0]], [[0,1],[1,0]]]), \
+			np.array([[[1,0],[1,0]], [[1,0],[1,0]]])) # 0.5
+		MI1.add_predict_batch([('Chr1',5,15),('Chr2',0,5)], \
+			np.array([[[0,1],[1,0]], [[0,1],[1,0]]]), \
+			np.array([[[1,0],[0,1]], [[1,0],[0,1]]])) # 1.0
+		MI0.dump()
+		MI1.dump()
+		MI0.load_all()
+		MI1.load_all()
+		for n,m in (('mean',np.mean), ('sum',np.sum)):
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,5,n), m([0.5]*5))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,10,n), m([0.5]*10+[1.0]*5))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,15,n), m([0.5]*15+[1.0]*10))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,20,n), m([0.5]*20+[1.0]*10))
+			self.assertEqual(MI0._region_to_agg_value('Chr3',0,5,n), -1)
+			self.assertEqual(MI0._region_to_agg_value('Chr2',0,10,n), m([1.0]*5))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,5,n), ([2.5], [m([0.5]*5)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,10,n), ([5], [m([0.5]*10+[1.0]*5)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,15,n), ([7.5], [m([0.5]*15+[1.0]*10)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,20,n), ([10], [m([0.5]*20+[1.0]*10)]))
+			self.assertEqual(MI0._region_to_xy('Chr3',0,5,n), ([2.5], [-1]))
+			self.assertEqual(MI0._region_to_xy('Chr2',0,10,n), ([5], [m([1.0]*5)]))
+			x, y = MI0.to_array('Chr1',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[0.5]*5, [0.5]*5+[1.0]*5, [0.5]*5+[1.0]*5, [0.5]*5]))
+			x, y = MI0.to_array('Chr2',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
 	def test_vote(self):
 		from functools import reduce
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
