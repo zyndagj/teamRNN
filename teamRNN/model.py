@@ -274,7 +274,7 @@ class sleight_model:
 				os.makedirs(self.save_dir)
 			if epoch:
 				epoch_file = self.save_file.replace(".h5","_e%i.h5"%(epoch))
-				self.model.save_weights(self.epoch_file)
+				self.model.save_weights(epoch_file)
 			self.model.save_weights(self.save_file)
 			logger.debug("Saved model")
 	def _make_stateful_model(self):

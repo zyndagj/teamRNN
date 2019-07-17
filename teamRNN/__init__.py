@@ -245,7 +245,10 @@ def train(args):
 			MI.close()
 		if not hvd or (hvd and args.hvd_rank == 0):
 			# Save between epochs
-			M.save(epoch=E)
+			if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
+				M.save(epoch=E)
+			else:
+				M.save()
 	del M
 	if hvd:
 		logger.debug("Waiting on other processes")
