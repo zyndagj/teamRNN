@@ -268,11 +268,15 @@ class sleight_model:
 			return None
 	def _detect_gpu(self):
 		return "GPU" in [d.device_type for d in device_lib.list_local_devices()]
-	def save(self):
+	def save(self, epoch=False):
 		if not hvd or hvd.rank() == 0:
 			if not os.path.exists(self.save_dir):
 				os.makedirs(self.save_dir)
+			if epoch:
+				epoch_file = self.save_file.replace(".h5","_e%i.h5"%(epoch))
+				self.model.save_weights(self.epoch_file)
 			self.model.save_weights(self.save_file)
+			logger.debug("Saved model")
 	def _make_stateful_model(self):
 		self.test_model = self._build_graph(test=True)
 		self._compile_graph(self.test_model, 'mse', 'adam')
@@ -300,17 +304,13 @@ class sleight_model:
 		total_time = time() - start_time
 		logger.debug("Finished training batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
 		return (loss, accuracy, total_time)
-	def predict(self, x_batch):
+	def predict(self, x_batch, return_time=False):
 		start_time = time()
 		y_pred = self.model.predict_on_batch(x_batch)
 		total_time = time() - start_time
 		logger.debug("Finished predict batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
-		return np.abs(y_pred.round(0)).astype(np.uint32)
-	def predict_stateful(self, x_batch):
-		start_time = time()
-		y_pred = self.model.predict_on_batch(x_batch)
-		total_time = time() - start_time
-		logger.debug("Finished predict batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
+		if time:
+			return np.abs(y_pred.round(0)).astype(np.uint32), total_time
 		return np.abs(y_pred.round(0)).astype(np.uint32)
 
 def mem_usage():

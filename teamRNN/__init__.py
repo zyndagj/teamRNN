@@ -191,65 +191,61 @@ def train(args):
 	if glob(M.save_file+"*") and not args.force:
 		M.restore()
 	# Open the input
-	IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy)
+	IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, stateful=bool(cached_args.stateful))
 	# Check target chromosomes
 	train_chroms = _target_checker(cached_args.train, IS, IS.FA.references)
 	test_chroms = _target_checker(cached_args.test, IS, [])
 	# Run
 	for E in irange(args.epochs):
-		count = 0
-		MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
-		#mse_list = []
-		#if test_chroms:
-		#	OA = writer.output_aggregator(args.reference)
-		# hvd.allgather([args.hvd_rank], name="Barrier")
 		iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
 		#### Train #################################################
+		train_start = time()
 		for chrom in sorted(train_chroms):
-			if cached_args.stateful: M.model.reset_states()
 			start_time = time()
-			for cb, xb, yb in iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+			if cached_args.stateful: M.model.reset_states()
+			for count, batch in enumerate(iter_func(chrom, seq_len=args.sequence_length, \
+					offset=args.offset, batch_size=cached_args.batch_size, \
+					hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
+				cb, xb, yb = batch
+				cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
 				assert(len(cb) == cached_args.batch_size)
 				MSE, acc, train_time = M.train(xb, yb)
-				MI.add_batch(cb, MSE)
-				#if hvd and len(cb) != cached_args.batch_size:
-				#	logger.warn("Had to tile batch of %i to %i"%(len(cb), cached_args.batch_size))
-				#	print "Had to tile batch of %i to %i"%(len(cb), cached_args.batch_size)
-				#	repeat = int(np.ceil(float(cached_args.batch_size)/xb.shape[0]))
-				#	xb = np.tile(xb, (repeat, 1, 1))[:cached_args.batch_size,:,:]
-				#	yb = np.tile(yb, (repeat, 1, 1))[:cached_args.batch_size,:,:]
-				count += 1
-				logger.debug("TRAIN: Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, \
-					cb[0][0], cb[0][1], cb[-1][2], train_time, time()-start_time))
+				if hvd: assert(len(cb) == cached_args.batch_size)
+				logger.debug("TRAIN: Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, cc, cs, ce, train_time, time()-start_time))
 				start_time = time()
 			if cached_args.stateful: M.model.reset_states()
-		if train_chroms:
-			MI.write(hvd, train_chroms, 'TRAIN', E, 10000, 'mean', 'midpoint')
-		#### Test ##################################################
-		count = 0
-		del MI
-		MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
-		logger.debug("Testing with a batch size of %i"%(test_batch_size))
-		for chrom in sorted(test_chroms):
-			if cached_args.stateful: M.model.reset_states()
-			chrom_time, start_time = time(), time()
-			for cb, xb, yb in iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
-				assert(len(cb) == cached_args.batch_size)
-				y_pred_batch = M.predict(xb)
-				MI.add_predict_batch(cb, yb, y_pred_batch)
-				count += 1
-				logger.debug("TEST: Batch-%03i %s:%i-%i TOTAL=%.1fs"%(count, \
-					cb[0][0], cb[0][1], cb[-1][2], time()-start_time))
-				start_time = time()
-			print "Finished testing %s in %i seconds"%(chrom, int(time()-chrom_time))
-			if cached_args.stateful: M.model.reset_states()
-		if test_chroms:
-			MI.write(hvd, test_chroms, 'TEST', E, 10000, 'mean', 'midpoint')
-		del MI
+		logger.info("Epoch-%04i - Finished training in %i seconds"%(E, int(time()-train_start)))
+		#### Calculate MSE #########################################
+		if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
+			MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
+			test_start = time()
+			logger.debug("Epoch-%04i - Collecting Training MSE values"%(E))
+			for chrom in sorted(train_chroms)+sorted(test_chroms):
+				chrom_time, start_time = time(), time()
+				if cached_args.stateful: M.model.reset_states()
+				for count, batch in enumerate(iter_func(chrom, \
+						seq_len=args.sequence_length, offset=args.offset, \
+						batch_size=cached_args.batch_size, \
+						hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
+					cb, xb, yb = batch
+					if hvd: assert(len(cb) == cached_args.batch_size)
+					cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
+					y_pred_batch, predict_time = M.predict(xb, return_time=True)
+					MI.add_predict_batch(cb, yb, y_pred_batch)
+					logger.debug("TEST: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, cc, cs, ce, predict_time, time()-start_time))
+					start_time = time()
+				if cached_args.stateful: M.model.reset_states()
+				logger.debug("Finished testing %s in %i seconds"%(chrom, int(time()-chrom_time)))
+			logger.info("Epoch-%04i - Finished testing in %i seconds"%(E, int(time()-test_start)))
+			# Write output values
+			if train_chroms:
+				MI.write(hvd, train_chroms, 'TRAIN', E, 10000, 'mean', 'midpoint')
+			if test_chroms:
+				MI.write(hvd, test_chroms, 'TEST', E, 10000, 'mean', 'midpoint')
+			MI.close()
 		if not hvd or (hvd and args.hvd_rank == 0):
 			# Save between epochs
-			M.save()
-			logger.debug("Saved model")
+			M.save(epoch=E)
 	del M
 	if hvd:
 		logger.debug("Waiting on other processes")

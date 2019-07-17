@@ -132,22 +132,28 @@ class gff3_interval:
 		return outA
 
 class input_slicer:
-	def __init__(self, fasta_file, meth_file, gff3_file='', quality=-1, ploidy=2):
+	def __init__(self, fasta_file, meth_file, gff3_file='', quality=-1, ploidy=2, stateful=False):
 		self.fasta_file = fasta_file
 		self.FA = FastaFile(fasta_file)
 		self.meth_file = meth_file
-		self.M5 = Meth5py(meth_file, fasta_file)
+		self.M5 = False if stateful else Meth5py(meth_file, fasta_file)
 		self.gff3_file = gff3_file
 		if gff3_file:
 			self.GI = gff3_interval(gff3_file)
 		self.RC = refcache(fasta_file)
 		self.quality = quality
 		self.ploidy = ploidy
+		if stateful:
+			self.pool = mp.Pool(4, slicer_init, (self.fasta_file, self.meth_file, \
+						self.gff3_file, self.quality, self.ploidy))
+		else:
+			self.pool = False
 	def __del__(self):
-		if self.FA:
-			self.FA.close()
-		if self.M5:
-			self.M5.close()
+		for f in (self.FA, self.M5):
+			if f: f.close()
+		if self.pool:
+			self.pool.close()
+			self.pool.join()
 #>C1 dna:chromosome chromosome:BOL:C1:1:43764888:1 REF
 	def _get_region(self, chrom, cur, chrom_len, chrom_quality, seq_len, print_region=False):
 		if print_region: logger.debug("Fetching %s:%i-%i"%(chrom, cur, cur+seq_len))
@@ -281,37 +287,16 @@ class input_slicer:
 		starts = np.arange(batch_size)*(max_contig_len/2)
 		ends = starts+max_contig_len
 		#print "starts: [%s]   ends: [%s]"%(', '.join(map(str, starts)),', '.join(map(str, ends)))
-		if batch_size > 100:
-			self.M5.close()
-			del self.M5
-			partial_wgr = partial(worker_get_region, chrom=chrom, chrom_len=chrom_len, chrom_quality=chrom_quality, seq_len=seq_len)
-			n_cores = min(batch_size, mp.cpu_count()/2, 4)
-			pool = mp.Pool(n_cores, slicer_init, (self.fasta_file, \
-					self.meth_file, self.gff3_file, self.quality, self.ploidy))
-			for iB in irange(n_batches):
-				rank_start_inds = range(contigs_per_rank*hvd_rank, contigs_per_rank*(hvd_rank+1))
-				rank_region_starts = starts[rank_start_inds]+iB*seq_len
-				if self.gff3_file:
-					c, x, y = zip(*pool.imap(partial_wgr, rank_region_starts, chunksize=100))
-					yield (c, np.array(x), np.array(y))
-				else:
-					c, x = zip(*pool.imap(partial_wgr, rank_region_starts, chunksize=100))
-					yield (c, np.array(x))
-			#ret = pool.map(worker_close, range(n_cores))
-			pool.close()
-			pool.join()
-			self.M5 = Meth5py(self.meth_file, self.fasta_file)
-		else:
-			partial_wgr = partial(self._get_region_map, chrom=chrom, chrom_len=chrom_len, chrom_quality=chrom_quality, seq_len=seq_len)
-			for iB in irange(n_batches):
-				rank_start_inds = range(contigs_per_rank*hvd_rank, contigs_per_rank*(hvd_rank+1))
-				rank_region_starts = starts[rank_start_inds]+iB*seq_len
-				if self.gff3_file:
-					c, x, y = zip(*map(partial_wgr, rank_region_starts))
-					yield (list(c), np.array(x), np.array(y))
-				else:
-					c, x = zip(*map(partial_wgr, rank_region_starts))
-					yield (list(c), np.array(x))
+		partial_wgr = partial(worker_get_region, chrom=chrom, chrom_len=chrom_len, chrom_quality=chrom_quality, seq_len=seq_len)
+		for iB in irange(n_batches):
+			rank_start_inds = range(contigs_per_rank*hvd_rank, contigs_per_rank*(hvd_rank+1))
+			rank_region_starts = starts[rank_start_inds]+iB*seq_len
+			if self.gff3_file:
+				c, x, y = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=100))
+				yield (c, np.array(x), np.array(y))
+			else:
+				c, x = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=100))
+				yield (c, np.array(x))
 	def _get_region_map(self, cur, chrom, chrom_len, chrom_quality, seq_len):
 		return self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len, print_region=False)
 

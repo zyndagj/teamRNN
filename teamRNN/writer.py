@@ -292,6 +292,8 @@ class MSE_interval:
 		self.mse_array_dict[chrom] = np.zeros(nbases, dtype=np.float)
 		self.mse_count_dict[chrom] = np.zeros(nbases, dtype=np.uint16)
 	def __del__(self):
+		self.close()
+	def close(self):
 		for fname in glob("%s/mse__*__%i.*"%(self.out_dir, self.rank)):
 			logger.debug("Deleting %s"%(fname))
 			os.remove(fname)
