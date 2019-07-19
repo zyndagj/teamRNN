@@ -174,6 +174,7 @@ class sleight_model:
 		logger.debug("Using the %s optimizer with a learning rate of %s and the %s loss function"%(opt_func, str(self.learning_rate), loss_func))
 		opt = opt_functions[opt_func](lr=self.learning_rate)
 		if hvd:
+			if hvd.rank() == 0: logger.debug("Compiling distributed optimizer")
 			opt = hvd.DistributedOptimizer(opt)
 			self.callbacks = [hvd.callbacks.BroadcastGlobalVariablesCallback(0)]
 		# compile

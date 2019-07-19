@@ -132,6 +132,7 @@ class TestReader(unittest.TestCase):
 							#print C1L+C2L
 							self.assertEqual(CL, C1L+C2L)
 	def test_stateful_chrom_iter(self):
+		IS = reader.input_slicer(self.fa, self.mr1, stateful=True)
 		I = reader.input_slicer(self.fa, self.mr1)
 		chrom_len = 20
 		chrom_quality = I.RC.chrom_qualities['Chr1']
@@ -156,18 +157,18 @@ class TestReader(unittest.TestCase):
 								region_start = starts[iS]+iB*seq_len
 								c.append(I._get_region('Chr1', region_start, chrom_len, chrom_quality, seq_len)[0])
 							EL.append(c)
-						CL = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+						CL = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
 							1, batch_size, hvd_rank, hvd_size)]
 			
 						#print CL
 						#print EL
-						for c,x in I.stateful_chrom_iter('Chr1', seq_len, 1, batch_size, hvd_rank, hvd_size):
+						for c,x in IS.stateful_chrom_iter('Chr1', seq_len, 1, batch_size, hvd_rank, hvd_size):
 							self.assertEqual(x.shape, (contigs_per_rank, seq_len, 10))
 						self.assertEqual(CL, EL)
 					if hvd_size == 2:
-						R1 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+						R1 = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
 							1, batch_size, 0, hvd_size)]
-						R2 = [c for c,x in I.stateful_chrom_iter('Chr1', seq_len, \
+						R2 = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
 							1, batch_size, 1, hvd_size)]
 						self.assertEqual(len(R1), len(R2))
 	def test_input_iter(self):
@@ -396,7 +397,8 @@ class TestReader(unittest.TestCase):
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, self.n_outputs))
 	def test_batch_stateful(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
+		IS = reader.input_slicer(self.fa, self.mr1, stateful=True)
+		I = reader.input_slicer(self.fa, self.mr1)
 		BL = list(IS.stateful_chrom_iter(chrom='Chr1', seq_len=5, batch_size=2))
 		#for c,x in BL:
 		#	print c
@@ -410,7 +412,7 @@ class TestReader(unittest.TestCase):
 				c,x = out
 			self.assertEqual(np.array(x).shape, (2, 5, 10))
 			for i, region in enumerate(c):
-				c_region, x_region = IS._get_region(region[0], region[1], 20, 3, 5)
+				c_region, x_region = I._get_region(region[0], region[1], 20, 3, 5)
 				self.assertTrue(np.all(x_region == x[i]))
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
@@ -575,7 +577,7 @@ class TestReader(unittest.TestCase):
 			learning_rate=0.01, bidirectional=False, save_dir='test_model', \
 			cell_type='lstm', stateful=batch_size)
 		# train models
-		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3, stateful=True)
 		for epoch in range(1,50+1):
 			M.model.reset_states()
 			for chrom in sorted(IS.FA.references):
@@ -613,7 +615,7 @@ class TestReader(unittest.TestCase):
 	def test_train_stateful_02(self):
 		if not self.test_model: return
 		seq_len, batch_size = 4,4
-		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3, stateful=True)
 		# create models
 		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
 			learning_rate=0.01, bidirectional=False, save_dir='test_model', \

@@ -41,13 +41,11 @@ from time import time
 import pickle
 import logging
 try:
-	#import horovod.keras as hvd
 	import horovod.tensorflow.keras as hvd
-	hvd.init()
-	FORMAT = "[%%(levelname)s - P%i/%i - %%(filename)s:%%(lineno)s - %%(funcName)s] %%(message)s"%(hvd.rank(), hvd.size())
+	#hvd.init() # Can't init until after mp forking
 except:
 	hvd = False
-	FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
+FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
 import tensorflow as tf
 logger = logging.getLogger(__name__)
 from teamRNN import reader, constants, writer, model
@@ -117,11 +115,6 @@ def main():
 	##############################################
 	args = parser.parse_args()
 	args.config = os.path.join(args.directory, 'config.pkl')
-	##############################################
-	# Check for rank and size
-	##############################################
-	args.hvd_rank = hvd.rank() if hvd else 0
-	args.hvd_size = hvd.size() if hvd else 1
 	################################
 	# Configure logging
 	################################
@@ -155,7 +148,13 @@ def train(args):
 		logger.info("Loading model parameters from %s"%(args.config))
 		with open(args.config, 'rb') as CF:
 			cached_args = pickle.load(CF)
+		# Open the input
+		IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, stateful=bool(cached_args.stateful))
+		init_hvd(args)
 	else:
+		# Open the input
+		IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, stateful=bool(args.stateful))
+		init_hvd(args)
 		# Save the parameters
 		if not hvd or (hvd and hvd.rank() == 0):
 			logger.info("Saving model parameters to %s"%(args.config))
@@ -167,6 +166,7 @@ def train(args):
 	assert(cached_args.dropout >= 0 and cached_args.dropout <= 1)
 	# Parse hidden list
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
+	model_batch = int(cached_args.batch_size/args.hvd_size) if hvd and cached_args.stateful else cached_args.batch_size
 	# Load model
 	M = model.sleight_model(args.name, \
 		n_inputs = 10, \
@@ -184,14 +184,12 @@ def train(args):
 		l2 = cached_args.l2, \
 		bidirectional = cached_args.bidirectional, \
 		merge_mode = cached_args.merge, \
-		stateful = cached_args.batch_size if cached_args.stateful else False, \
+		stateful = model_batch if cached_args.stateful else False, \
 		hidden_list=hidden_list, \
 		save_dir=args.directory)
 	# See if there is a checkpoint to restore from
 	if glob(M.save_file+"*") and not args.force:
 		M.restore()
-	# Open the input
-	IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, stateful=bool(cached_args.stateful))
 	# Check target chromosomes
 	train_chroms = _target_checker(cached_args.train, IS, IS.FA.references)
 	test_chroms = _target_checker(cached_args.test, IS, [])
@@ -208,15 +206,16 @@ def train(args):
 					hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
 				cb, xb, yb = batch
 				cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
-				assert(len(cb) == cached_args.batch_size)
+				#logger.debug("|cb| = %i  batch = %i  model = %i"%(len(cb), cached_args.batch_size, model_batch))
+				assert(len(cb) == model_batch)
 				MSE, acc, train_time = M.train(xb, yb)
-				if hvd: assert(len(cb) == cached_args.batch_size)
 				logger.debug("TRAIN: Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, cc, cs, ce, train_time, time()-start_time))
 				start_time = time()
 			if cached_args.stateful: M.model.reset_states()
 		logger.info("Epoch-%04i - Finished training in %i seconds"%(E, int(time()-train_start)))
 		#### Calculate MSE #########################################
-		if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
+		#if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
+		if True: # Every 5th epoch [4, 9, ...]
 			MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
 			test_start = time()
 			logger.debug("Epoch-%04i - Collecting Training MSE values"%(E))
@@ -228,8 +227,8 @@ def train(args):
 						batch_size=cached_args.batch_size, \
 						hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
 					cb, xb, yb = batch
-					if hvd: assert(len(cb) == cached_args.batch_size)
 					cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
+					assert(len(cb) == model_batch)
 					y_pred_batch, predict_time = M.predict(xb, return_time=True)
 					MI.add_predict_batch(cb, yb, y_pred_batch)
 					logger.debug("TEST: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, cc, cs, ce, predict_time, time()-start_time))
@@ -324,6 +323,25 @@ def classify(args):
 	OA.write_gff3(out_file=args.output, threshold=args.threshold)
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Done")
+
+def test_barrier(msg):
+	if hvd.rank() == 0: logger.debug(msg)
+	print hvd.allgather([hvd.rank()], name="Barrier")
+	if hvd.rank() == 0: logger.debug("OK")
+def init_hvd(args):
+	if hvd:
+		hvd.init()
+		FORMAT = "[%%(levelname)s - P%i/%i - %%(filename)s:%%(lineno)s - %%(funcName)s] %%(message)s"%(hvd.rank(), hvd.size())
+		# Remove all handlers associated with the root logger object.
+		for handler in logging.root.handlers[:]:
+			logging.root.removeHandler(handler)
+		if args.verbose:
+			logging.basicConfig(level=logging.DEBUG, format=FORMAT)
+		else:
+			logging.basicConfig(level=logging.INFO, format=FORMAT)
+		logger.debug("Updated logger to print process")
+	args.hvd_rank = hvd.rank() if hvd else 0
+	args.hvd_size = hvd.size() if hvd else 1
 
 class fileCheck:
 	def check(self, file, exts):

@@ -256,6 +256,8 @@ class MSE_interval:
 		self.mse_count_dict = {}
 		self.agg_method = {'median':np.median, 'mean':np.mean, 'sum':np.sum}
 		self.c_method = {'midpoint':self._to_midpoint, 'range':self._to_range}
+		self.dumped = False
+		self.loaded = False
 	def add_batch(self, cb, mse_value):
 		for chrom, s, e in cb:
 			self.mse_dict[chrom].add(s,e,mse_value)
@@ -287,6 +289,7 @@ class MSE_interval:
 			out_name = os.path.join(self.out_dir, 'mse__%s__%i.npz'%(chrom, self.rank))
 			np.savez_compressed(out_name, v=self.mse_array_dict[chrom], \
 				c=self.mse_array_dict[chrom])
+		self.dumped = True
 	def _create_mse_array(self, chrom):
 		nbases = self.chrom_dict[chrom]
 		self.mse_array_dict[chrom] = np.zeros(nbases, dtype=np.float)
@@ -298,7 +301,7 @@ class MSE_interval:
 			logger.debug("Deleting %s"%(fname))
 			os.remove(fname)
 	def load_all(self):
-		if self.rank == 0:
+		if self.dumped and not self.loaded and self.rank == 0:
 			for p_file in glob("%s/mse__*__*.pkl"%(self.out_dir)):
 				chrom, rank = self.regex.search(p_file).groups()
 				rank = int(rank)
@@ -321,6 +324,7 @@ class MSE_interval:
 					self.mse_count_dict[chrom] += loaded['c'].astype(np.uint16)
 				else:
 					logger.debug("skipping %s"%(npy_file))
+			self.loaded = True
 	def _to_midpoint(self, s, e, v):
 		half = (e-s)/2.0
 		x, y = [s+half], [v]
@@ -366,10 +370,11 @@ class MSE_interval:
 		return x,y
 	def write(self, hvd=False, chroms=[], name='TRAIN', epoch=0, width=1000, method='mean', coords='midpoint'):
 		assert(name in set(('TRAIN','TEST')))
-		self.dump()
-		if hvd: hvd.allgather([self.rank], name="Barrier")
-		self.load_all()
-		if hvd: hvd.allgather([self.rank], name="Barrier")
+		if hvd:
+			self.dump()
+			hvd.allgather([self.rank], name="Barrier")
+			self.load_all()
+			hvd.allgather([self.rank], name="Barrier")
 		if self.rank != 0: return
 		for chrom in sorted(chroms):
 			x,y = self.to_array(chrom, width=width, method=method, coords=coords)
