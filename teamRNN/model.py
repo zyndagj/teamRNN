@@ -303,13 +303,13 @@ class sleight_model:
 		start_time = time()
 		loss, accuracy = self.model.train_on_batch(x_batch, y_batch)
 		total_time = time() - start_time
-		logger.debug("Finished training batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
+		#logger.debug("Finished training batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
 		return (loss, accuracy, total_time)
 	def predict(self, x_batch, return_time=False):
 		start_time = time()
 		y_pred = self.model.predict_on_batch(x_batch)
 		total_time = time() - start_time
-		logger.debug("Finished predict batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
+		#logger.debug("Finished predict batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
 		if time:
 			return np.abs(y_pred.round(0)).astype(np.uint32), total_time
 		return np.abs(y_pred.round(0)).astype(np.uint32)

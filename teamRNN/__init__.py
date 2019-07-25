@@ -209,17 +209,17 @@ def train(args):
 				#logger.debug("|cb| = %i  batch = %i  model = %i"%(len(cb), cached_args.batch_size, model_batch))
 				assert(len(cb) == model_batch)
 				MSE, acc, train_time = M.train(xb, yb)
-				logger.debug("TRAIN: Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, cc, cs, ce, train_time, time()-start_time))
+				logger.debug("TRAIN: Batch-%03i MSE=%.4f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, MSE, cc, cs, ce, train_time, time()-start_time, len(xb)/train_time))
 				start_time = time()
 			if cached_args.stateful: M.model.reset_states()
 		logger.info("Epoch-%04i - Finished training in %i seconds"%(E, int(time()-train_start)))
 		#### Calculate MSE #########################################
 		#if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
-		if True: # Every 5th epoch [4, 9, ...]
+		if (E+1)%4 == 0: # Every 5th epoch [4, 9, ...]
 			MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
 			test_start = time()
 			logger.debug("Epoch-%04i - Collecting Training MSE values"%(E))
-			for chrom in sorted(train_chroms)+sorted(test_chroms):
+			for chrom in (train_chroms[0], test_chroms[0]):
 				chrom_time, start_time = time(), time()
 				if cached_args.stateful: M.model.reset_states()
 				for count, batch in enumerate(iter_func(chrom, \
@@ -231,16 +231,16 @@ def train(args):
 					assert(len(cb) == model_batch)
 					y_pred_batch, predict_time = M.predict(xb, return_time=True)
 					MI.add_predict_batch(cb, yb, y_pred_batch)
-					logger.debug("TEST: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, cc, cs, ce, predict_time, time()-start_time))
+					logger.debug("TEST: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
 					start_time = time()
 				if cached_args.stateful: M.model.reset_states()
 				logger.debug("Finished testing %s in %i seconds"%(chrom, int(time()-chrom_time)))
 			logger.info("Epoch-%04i - Finished testing in %i seconds"%(E, int(time()-test_start)))
 			# Write output values
 			if train_chroms:
-				MI.write(hvd, train_chroms, 'TRAIN', E, 10000, 'mean', 'midpoint')
+				MI.write(hvd, train_chroms[0], 'TRAIN', E, 10000, 'mean', 'midpoint')
 			if test_chroms:
-				MI.write(hvd, test_chroms, 'TEST', E, 10000, 'mean', 'midpoint')
+				MI.write(hvd, test_chroms[0], 'TEST', E, 10000, 'mean', 'midpoint')
 			MI.close()
 		if not hvd or (hvd and args.hvd_rank == 0):
 			# Save between epochs

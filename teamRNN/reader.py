@@ -292,10 +292,10 @@ class input_slicer:
 			rank_start_inds = range(contigs_per_rank*hvd_rank, contigs_per_rank*(hvd_rank+1))
 			rank_region_starts = starts[rank_start_inds]+iB*seq_len
 			if self.gff3_file:
-				c, x, y = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=100))
+				c, x, y = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
 				yield (list(c), np.array(x), np.array(y))
 			else:
-				c, x = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=100))
+				c, x = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
 				yield (list(c), np.array(x))
 	def _get_region_map(self, cur, chrom, chrom_len, chrom_quality, seq_len):
 		return self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len, print_region=False)
