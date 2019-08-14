@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 05/16/2019
+# Last Modified: 07/15/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -41,14 +41,15 @@ from time import time
 import pickle
 import logging
 try:
-	import horovod.tensorflow as hvd
-	hvd.init()
+	import horovod.tensorflow.keras as hvd
+	#hvd.init() # Can't init until after mp forking
 except:
 	hvd = False
+FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
 import tensorflow as tf
 logger = logging.getLogger(__name__)
-FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
 from teamRNN import reader, constants, writer, model
+from teamRNN.util import irange, fivenum
 from pysam import FastaFile
 import numpy as np
 
@@ -65,7 +66,6 @@ def main():
 	parser.add_argument('-N', '--name', metavar="STR", help='Name of model to use [%(default)s]', default='default', type=str)
 	parser.add_argument('-M', '--methratio', metavar='FILE', type=fC.methratio, help='Methratio file used as input', required=True)
 	parser.add_argument('-o', '--offset', metavar='INT', help='Number of bases to slide between windows [%(default)s]', default=1, type=int)
-	parser.add_argument('-B', '--batch_size', metavar='INT', help='Batch size [%(default)s]', default=100, type=int)
 	parser.add_argument('-Q', '--quality', metavar='INT', help='Input assembly quality [%(default)s]', default=-1, type=int)
 	parser.add_argument('-P', '--ploidy', metavar='INT', help='Input chromosome ploidy [%(default)s]', default=2, type=int)
 	parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
@@ -75,19 +75,27 @@ def main():
 	parser_train = subparsers.add_parser("train", help="Train the model on data")
 	parser_train.add_argument('-A', '--annotation', metavar="GFF3", help='Reference annotation used for training', type=fC.gff, required=True)
 	parser_train.add_argument('-E', '--epochs', metavar="INT", help='Number of training epochs [%(default)s]', default=100, type=int)
-	parser_train.add_argument('-L', '--sequence_length', metavar="INT", help='Length of sequence used for classification [%(default)s]', default=10000, type=int)
+	parser_train.add_argument('-B', '--batch_size', metavar='INT', help='Batch size for each rank[%(default)s]', default=100, type=int)
+	parser_train.add_argument('-L', '--sequence_length', metavar="INT", help='Length of sequence used for classification [%(default)s]', default=500, type=int)
 	parser_train.add_argument('-n', '--neurons', metavar="INT", help='Number of neurons in each RNN/LSTM cell [%(default)s]', default=100, type=int)
 	parser_train.add_argument('-l', '--layers', metavar="INT", help='Number of layers of RNN/LSTM cells [%(default)s]', default=1, type=int)
 	parser_train.add_argument('-r','--learning_rate', metavar="FLOAT", help='Learning rate of the optimizer [%(default)s]', default=0.001, type=float)
-	parser_train.add_argument('-d', '--dropout', metavar="FLOAT", help='Dropout rate of the model [%(default)s]', default=0.05, type=float)
+	parser_train.add_argument('-d', '--dropout', metavar="FLOAT", help='Dropout rate of the model [%(default)s]', default=0, type=float)
 	cell_types = ('lstm', 'rnn')
 	parser_train.add_argument('-C', '--cell_type', metavar="STR", help='The recurrent cell type of the model ([lstm], rnn)', default='lstm', type=_argChecker(cell_types, 'cell type').check)
-	parser_train.add_argument('-P', '--peep', action='store_true', help='Use peep-hole connections on LSTM cells')
-	parser_train.add_argument('-S', '--stacked', action='store_true', help='Use stacked outputs')
 	parser_train.add_argument('-b', '--bidirectional', action='store_true', help='Reccurent layers are bidirectional')
-	parser_train.add_argument('-w', '--regularize', action='store_true', help='Use a weight regularizer to penalize huge weights')
+	merge_modes = ('sum', 'mul', 'concat', 'ave', 'none')
+	parser_train.add_argument('-m', '--merge', metavar="STR", help='Bidirectional layer merge modes ([concat], sum, mul, ave, none)', default='concat', type=_argChecker(merge_modes, 'cell type').check)
+	parser_train.add_argument('-S', '--stateful', action='store_true', help='The reccurent model is stateful (cannot be used with bidirectional)')
+	parser_train.add_argument('--reg_kernel', action='store_true', help='Apply a regularizer to the kernel weights matrix')
+	parser_train.add_argument('--reg_bias', action='store_true', help='Apply a regularizer to the bias vector')
+	parser_train.add_argument('--reg_activity', action='store_true', help='Apply a regularizer to the activation layer')
+	parser_train.add_argument('--l1', metavar="FLOAT", help="L1 regularizer lambda [%(default)s]", default=0.01, type=float)
+	parser_train.add_argument('--l2', metavar="FLOAT", help="L2 regularizer lambda [None]", default=0, type=float)
 	parser_train.add_argument('-H', '--hidden_list', metavar="STR", help='Comma separated list of hidden layer widths used after recurrent layers', type=str)
 	parser_train.add_argument('-f', '--force', action='store_true', help='Overwrite a previously saved model')
+	parser_train.add_argument('--train', metavar="STR", help='Comma separated list of chromosomes to train on [all]', type=str)
+	parser_train.add_argument('--test', metavar="STR", help='Comma separated list of chromosomes to test on [none]', type=str)
 	#
 	parser_train.set_defaults(target_function=train)
 	#parser_train.add_argument('-', '--', action='store_true', help='')
@@ -107,11 +115,6 @@ def main():
 	##############################################
 	args = parser.parse_args()
 	args.config = os.path.join(args.directory, 'config.pkl')
-	##############################################
-	# Check for rank and size
-	##############################################
-	args.hvd_rank = hvd.rank() if hvd else 0
-	args.hvd_size = hvd.size() if hvd else 1
 	################################
 	# Configure logging
 	################################
@@ -125,14 +128,33 @@ def main():
 	##############################################
 	args.target_function(args)
 
+def _target_checker(targets, IS, default):
+	if targets:
+		split_chroms = targets.split(',')
+		if set(split_chroms).issubset(set(IS.FA.references)):
+			return split_chroms
+		else:
+			diff = set(split_chroms).difference(set(IS.FA.refernces))
+			sys.exit("[%s] do not exist in %s"%(', '.join(diff), IS.fasta_file))
+	else:
+		return default
+
 def train(args):
+	if args.bidirectional and args.stateful:
+		sys.exit("Cannot use stateful and bidirectional")
 	logger.debug("Model will be trained on the given input")
 	# Attempt to load old parameters
 	if os.path.exists(args.config) and not args.force:
 		logger.info("Loading model parameters from %s"%(args.config))
 		with open(args.config, 'rb') as CF:
 			cached_args = pickle.load(CF)
+		# Open the input
+		IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, stateful=bool(cached_args.stateful))
+		init_hvd(args)
 	else:
+		# Open the input
+		IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, stateful=bool(args.stateful))
+		init_hvd(args)
 		# Save the parameters
 		if not hvd or (hvd and hvd.rank() == 0):
 			logger.info("Saving model parameters to %s"%(args.config))
@@ -141,71 +163,98 @@ def train(args):
 				pickle.dump(args, CF)
 		cached_args = args
 	# Check dropout
-	assert(cached_args.dropout >= 0)
-	assert(cached_args.dropout <= 1)
-	logger.debug("Using a dropout of %.4f"%(cached_args.dropout))
+	assert(cached_args.dropout >= 0 and cached_args.dropout <= 1)
 	# Parse hidden list
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
-	logger.debug("%i hidden layers of sizes %s will be added onto the model"%(len(hidden_list), args.hidden_list))
+	model_batch = int(cached_args.batch_size/args.hvd_size) if hvd and cached_args.stateful else cached_args.batch_size
 	# Load model
-	model.reset_graph()
-	M = model.sleight_model(args.name, n_inputs=10, n_outputs=len(constants.gff3_f2i)+2, \
-		n_steps=cached_args.sequence_length, \
-		n_neurons=cached_args.neurons, \
-		n_layers=cached_args.layers, \
-		learning_rate=cached_args.learning_rate, \
-		training_keep=1-cached_args.dropout, \
-		dropout=(cached_args.dropout>1), \
-		cell_type=cached_args.cell_type, \
-		peep=cached_args.peep, \
-		stacked=cached_args.stacked, \
-		bidirectional=cached_args.bidirectional, \
-		reg_losses=cached_args.regularize, \
+	M = model.sleight_model(args.name, \
+		n_inputs = 10, \
+		n_steps = cached_args.sequence_length, \
+		n_outputs = len(constants.gff3_f2i)+2, \
+		n_neurons = cached_args.neurons, \
+		n_layers = cached_args.layers, \
+		learning_rate = cached_args.learning_rate, \
+		dropout = cached_args.dropout, \
+		cell_type = cached_args.cell_type, \
+		reg_kernel = cached_args.reg_kernel, \
+		reg_bias = cached_args.reg_bias, \
+		reg_activity = cached_args.reg_activity, \
+		l1 = cached_args.l1, \
+		l2 = cached_args.l2, \
+		bidirectional = cached_args.bidirectional, \
+		merge_mode = cached_args.merge, \
+		stateful = model_batch if cached_args.stateful else False, \
 		hidden_list=hidden_list, \
 		save_dir=args.directory)
 	# See if there is a checkpoint to restore from
 	if glob(M.save_file+"*") and not args.force:
 		M.restore()
-	# Open the input
-	IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy)
-	for E in range(args.epochs):
-		cb_buffer, xb_buffer, yb_buffer = [], [], []
-		count = 0
-		start_time = time()
-		for cb, xb, yb in IS.new_batch_iter(seq_len=args.sequence_length, offset=args.offset, batch_size=args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
-			count += 1
-			#logger.info("Got region %i - %s"%(count, str(cb)))
-			# horovod requires that batch sizes be the same
-			if hvd and len(cb) != args.batch_size:
-				repeat = int(np.ceil(float(args.batch_size)/xb.shape[0]))
-				xb = np.tile(xb, (repeat, 1, 1))[:args.batch_size,:,:]
-				yb = np.tile(yb, (repeat, 1, 1))[:args.batch_size,:,:]
-			#logger.info("Training on %s with data shapes %s %s"%(str(cb), str(xb.shape), str(yb.shape)))
-			MSE, train_time = M.train(xb, yb)
-			#if not hvd or (hvd and hvd.rank() == 0):
-			#	logger.debug("Finished batch %s:%i-%i   MSE = %.3f"%(cb[0][0], cb[0][1], cb[-1][2], MSE))
-			print count, MSE, train_time, time()-start_time
-			logger.info("Batch-%03i MSE=%.6f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs"%(count, MSE, \
-				cb[0][0], cb[0][1], cb[-1][2], train_time, time()-start_time))
+	# Check target chromosomes
+	train_chroms = _target_checker(cached_args.train, IS, IS.FA.references)
+	test_chroms = _target_checker(cached_args.test, IS, [])
+	# Run
+	for E in irange(args.epochs):
+		iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
+		#### Train #################################################
+		train_start = time()
+		for chrom in sorted(train_chroms):
 			start_time = time()
-		# Print MSE
-		if not hvd or (hvd and hvd.rank() == 0):
-			logger.info("Finished epoch %3i - MSE = %.6f"%(E+1, MSE))
+			if cached_args.stateful: M.model.reset_states()
+			for count, batch in enumerate(iter_func(chrom, seq_len=args.sequence_length, \
+					offset=args.offset, batch_size=cached_args.batch_size, \
+					hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
+				cb, xb, yb = batch
+				cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
+				#logger.debug("|cb| = %i  batch = %i  model = %i"%(len(cb), cached_args.batch_size, model_batch))
+				assert(len(cb) == model_batch)
+				MSE, acc, train_time = M.train(xb, yb)
+				logger.debug("TRAIN: Batch-%03i MSE=%.4f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, MSE, cc, cs, ce, train_time, time()-start_time, len(xb)/train_time))
+				start_time = time()
+			if cached_args.stateful: M.model.reset_states()
+		logger.info("Epoch-%04i - Finished training in %i seconds"%(E, int(time()-train_start)))
+		#### Calculate MSE #########################################
+		#if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
+		if (E+1)%4 == 0: # Every 5th epoch [4, 9, ...]
+			MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
+			test_start = time()
+			logger.debug("Epoch-%04i - Collecting Training MSE values"%(E))
+			for chrom in (train_chroms[0], test_chroms[0]):
+				chrom_time, start_time = time(), time()
+				if cached_args.stateful: M.model.reset_states()
+				for count, batch in enumerate(iter_func(chrom, \
+						seq_len=args.sequence_length, offset=args.offset, \
+						batch_size=cached_args.batch_size, \
+						hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
+					cb, xb, yb = batch
+					cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
+					assert(len(cb) == model_batch)
+					y_pred_batch, predict_time = M.predict(xb, return_time=True)
+					MI.add_predict_batch(cb, yb, y_pred_batch)
+					logger.debug("TEST: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
+					start_time = time()
+				if cached_args.stateful: M.model.reset_states()
+				logger.debug("Finished testing %s in %i seconds"%(chrom, int(time()-chrom_time)))
+			logger.info("Epoch-%04i - Finished testing in %i seconds"%(E, int(time()-test_start)))
+			# Write output values
+			if train_chroms:
+				MI.write(hvd, train_chroms[0], 'TRAIN', E, 10000, 'mean', 'midpoint')
+			if test_chroms:
+				MI.write(hvd, test_chroms[0], 'TEST', E, 10000, 'mean', 'midpoint')
+			MI.close()
+		if not hvd or (hvd and args.hvd_rank == 0):
 			# Save between epochs
-			M.save()
-			logger.debug("Saved model")
-	logger.debug("Closing model session")
-	M.sess.close()
-	if not hvd or (hvd and hvd.rank() == 0):
-		logger.debug("Done")
+			if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
+				M.save(epoch=E)
+			else:
+				M.save()
+	del M
 	if hvd:
-		logger.info("Waiting on other processes")
-		barrier = hvd.allreduce(tf.constant(0))
-		with tf.Session() as sess:
-			ret = sess.run(barrier)
-		#logger.info("Shutting down horovod")
-		#hvd.shutdown()
-		#logger.debug("Horovod is shut down")
+		logger.debug("Waiting on other processes")
+		print hvd.allgather([hvd.rank()], name="Barrier")
+		logger.debug("Exiting")
+	if not hvd or (hvd and hvd.rank() == 0):
+		logger.info("Done")
 	#logger.debug("Closing the tensorflow session")
 	#M.sess.close()
 
@@ -221,19 +270,23 @@ def classify(args):
 		cached_args = pickle.load(CF)
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
 	# Load model
-	model.reset_graph()
-	M = model.sleight_model(args.name, n_inputs=10, n_outputs=len(constants.gff3_f2i)+2, \
-		n_steps=cached_args.sequence_length, \
-		n_neurons=cached_args.neurons, \
-		n_layers=cached_args.layers, \
-		learning_rate=cached_args.learning_rate, \
-		training_keep=1-cached_args.dropout, \
-		dropout=(cached_args.dropout>1), \
-		cell_type=cached_args.cell_type, \
-		peep=cached_args.peep, \
-		stacked=cached_args.stacked, \
-		bidirectional=cached_args.bidirectional, \
-		reg_losses=cached_args.regularize, \
+	M = model.sleight_model(args.name, \
+		n_inputs = 10, \
+		n_steps = cached_args.sequence_length, \
+		n_outputs = len(constants.gff3_f2i)+2, \
+		n_neurons = cached_args.neurons, \
+		n_layers = cached_args.layers, \
+		learning_rate = cached_args.learning_rate, \
+		dropout = cached_args.dropout, \
+		cell_type = cached_args.cell_type, \
+		reg_kernel = cached_args.reg_kernel, \
+		reg_bias = cached_args.reg_bias, \
+		reg_activity = cached_args.reg_activity, \
+		l1 = cached_args.l1, \
+		l2 = cached_args.l2, \
+		bidirectional = cached_args.bidirectional, \
+		merge_mode = cached_args.merge, \
+		stateful = cached_args.batch_size if cached_args.stateful else False, \
 		hidden_list=hidden_list, \
 		save_dir=args.directory)
 	# See if there is a checkpoint to restore from
@@ -241,21 +294,54 @@ def classify(args):
 		logger.error("No model to restore from")
 		sys.exit()
 	M.restore()
+	#print M.model.summary()
 	# Open the input
 	IS = reader.input_slicer(args.reference, args.methratio, quality=args.quality, ploidy=args.ploidy)
 	# Open the output
 	OA = writer.output_aggregator(args.reference)
 	# Classify the input
-	for cb, xb in IS.new_batch_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
-		y_pred_batch = M.predict(xb)
-		for c, x, yp in zip(cb, xb, y_pred_batch):
-			OA.vote(*c, array=yp)
+	def non_zero(a):
+	        return ' '.join(["%i:%i"%(i,a[i]) for i in np.nonzero(a)[0]])
+	if cached_args.stateful:
+		for chrom in sorted(IS.FA.references):
+			M.model.reset_states()
+			for cb, xb in IS.stateful_chrom_iter(chrom, seq_len=cached_args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+				y_pred_batch = M.predict(xb)
+				for c, x, yp in zip(cb, xb, y_pred_batch):
+					chrom,s,e = c
+					#for i in range(s,e): print (chrom,i), non_zero(yp[i-s])
+					OA.vote(*c, array=yp, overwrite=True)
+			M.model.reset_states()
+	else:
+		for cb, xb in IS.genome_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
+			y_pred_batch = M.predict(xb)
+			for c, x, yp in zip(cb, xb, y_pred_batch):
+				OA.vote(*c, array=yp)
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Features need %.2f of the votes to be output"%(args.threshold))
 		logger.info("Writing %s"%(args.output))
 	OA.write_gff3(out_file=args.output, threshold=args.threshold)
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Done")
+
+def test_barrier(msg):
+	if hvd.rank() == 0: logger.debug(msg)
+	print hvd.allgather([hvd.rank()], name="Barrier")
+	if hvd.rank() == 0: logger.debug("OK")
+def init_hvd(args):
+	if hvd:
+		hvd.init()
+		FORMAT = "[%%(levelname)s - P%i/%i - %%(filename)s:%%(lineno)s - %%(funcName)s] %%(message)s"%(hvd.rank(), hvd.size())
+		# Remove all handlers associated with the root logger object.
+		for handler in logging.root.handlers[:]:
+			logging.root.removeHandler(handler)
+		if args.verbose:
+			logging.basicConfig(level=logging.DEBUG, format=FORMAT)
+		else:
+			logging.basicConfig(level=logging.INFO, format=FORMAT)
+		logger.debug("Updated logger to print process")
+	args.hvd_rank = hvd.rank() if hvd else 0
+	args.hvd_size = hvd.size() if hvd else 1
 
 class fileCheck:
 	def check(self, file, exts):

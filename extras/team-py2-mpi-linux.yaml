@@ -1,4 +1,4 @@
-name: team-py2
+name: team-py2-mpi
 channels:
   - defaults
   - bioconda
@@ -28,6 +28,7 @@ dependencies:
   - openssl=1.0
   - sra-tools
   - bsmapz
+  - cloudpickle
 #  - hmmlearn
 #  - gcc_linux-64
 #  - gxx_linux-64
@@ -35,3 +36,4 @@ dependencies:
   - pip:
     - pydoc-markdown
     - Meth5py>=0.4
+    - horovod

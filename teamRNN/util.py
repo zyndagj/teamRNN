@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 01/27/2019
+# Last Modified: 06/14/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -35,7 +35,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
 
-# irange
+import numpy as np
+
 try:
 	tmp = xrange(2)
 	del tmp
@@ -44,3 +45,6 @@ try:
 except:
 	irange = range
 	def iterdict(D): return D.items()
+
+def fivenum(data):
+	return np.percentile(data, [0, 25, 50, 75, 100], interpolation='midpoint')

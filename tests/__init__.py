@@ -14,6 +14,7 @@ logging.basicConfig(stream=logStream, level=logging.DEBUG, format=FORMAT)
 import teamRNN
 from teamRNN import reader, constants, writer, model
 from pysam import FastaFile
+from shutil import rmtree
 import numpy as np
 try:
 	from unittest.mock import patch
@@ -28,14 +29,16 @@ class TestReader(unittest.TestCase):
 		self.gff3 = os.path.join(tpath, 'test.gff3')
 		self.mr1 = os.path.join(tpath, 'test_meth.txt')
 		self.n_inputs = 10
+		self.seq_len = 15
 		self.n_outputs = len(constants.gff3_f2i)+2
 		self.test_model = True
-		self.n_epoch = 75
+		self.n_epoch = 100
 		self.learning_rate = 0.01
 	def tearDown(self):
 		## Runs after every test function ##
 		# Wipe log
 		logStream.truncate(0)
+		if os.path.exists('mse_tmp'): rmtree('mse_tmp')
 		## Runs after every test function ##
 	def test_refcache(self):
 		RC = reader.refcache(self.fa)
@@ -60,7 +63,47 @@ class TestReader(unittest.TestCase):
 		FA = FastaFile(self.fa)
 		for chrom in FA.references:
 			self.assertEqual(RC.chrom_qualities[chrom], 3)
+	def test_l2b(self):
+		I = reader.input_slicer(self.fa, self.mr1)
+		iA = np.tile(np.arange(9).reshape((9,1)), (1,2))
+		o_str = np.array(I._list2batch_str(iA, 5, 3, 2))
+		self.assertEqual(o_str.shape, (3,5,2))
+		for i in range(3):
+			expected = np.tile(np.arange(i*2,i*2+5).reshape((5,1)), (1,2))
+			if not np.all(o_str[i] == expected):
+				print "L i=%i   %s != %s"%(i, o_str[i], expected)
+			self.assertTrue(np.all(o_str[i] == expected))
+		o_num = I._list2batch_num(iA, 5, 3, 2)
+		self.assertEqual(o_num.shape, (3,5,2))
+		for i in range(3):
+			expected = np.tile(np.arange(i*2,i*2+5).reshape((5,1)), (1,2))
+			if not np.all(o_num[i] == expected):
+				print "N i=%i   %s != %s"%(i, o_num[i], expected)
+			self.assertTrue(np.all(o_num[i] == expected))
+		o_coord = I._coord2batch(('Chr1', 0, 9), 5, 3, 2)
+		self.assertEqual(o_coord, [('Chr1', 0, 5), ('Chr1', 2, 7), ('Chr1', 4, 9)])
 	def test_chrom_iter(self):
+		I = reader.input_slicer(self.fa, self.mr1)
+		chrom_len = 20
+		for seq_len in (5,6):
+			for offset in (1,2):
+				for batch_size in (1,2):
+					for hvd_size in (1,2):
+						for hvd_rank in range(0,hvd_size):
+							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
+							CL = [c for c,x in I.chrom_iter('Chr1', seq_len, \
+								offset, batch_size, hvd_rank, hvd_size)]
+							#print CL
+							full_len = seq_len+(batch_size-1)*offset
+							EL = [I._coord2batch(('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)), seq_len, batch_size, offset) for i \
+								in range(hvd_rank*(offset*batch_size), \
+									chrom_len-full_len+1, \
+									hvd_size*offset*batch_size)]
+							max_len = find_max(seq_len, offset, batch_size, hvd_size)
+							EL += EL[:max_len-len(EL)]
+							#print EL
+							self.assertEqual(CL, EL)
+	def test_genome_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		chrom_len = 20
 		for seq_len in (5,6):
@@ -68,23 +111,73 @@ class TestReader(unittest.TestCase):
 				for batch_size in (1,2):
 					for hvd_size in (1,2):
 						for hvd_rank in range(0,hvd_size):
-							CL = [c for c,x in I.chrom_iter('Chr1', seq_len, \
+							CL = [c for c,x in I.genome_iter(seq_len, \
 								offset, batch_size, hvd_rank, hvd_size)]
 							#print "seq_len: %i   offset: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, offset, batch_size, hvd_size, hvd_rank)
 							#print CL
-							EL = [('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)) for i \
-								in range(hvd_rank*(offset*batch_size), \
-									chrom_len-seq_len+1, \
-									hvd_size*offset*batch_size)]
-							#print EL
-							self.assertEqual(CL, EL)
+							full_len = seq_len+(batch_size-1)*offset
+							s = hvd_rank*(offset*batch_size)
+							e = chrom_len-full_len+1
+							o = hvd_size*offset*batch_size
+							C1L = [I._coord2batch(('Chr1',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)), seq_len, batch_size, offset) for i \
+								in range(s, e, o)]
+							C2L = [I._coord2batch(('Chr2',i,min(i+seq_len+(batch_size-1)*offset,chrom_len)), seq_len, batch_size, offset) for i \
+								in range(s, e, o)]
+							#print C1L
+							#print C2L
+							max_len = find_max(seq_len, offset, batch_size, hvd_size)
+							if find_max(seq_len, offset, batch_size, hvd_size) != len(C1L):
+								C1L = C1L+C1L[:max_len-len(C1L)]
+								C2L = C2L+C2L[:max_len-len(C2L)]
+							#print C1L+C2L
+							self.assertEqual(CL, C1L+C2L)
+	def test_stateful_chrom_iter(self):
+		IS = reader.input_slicer(self.fa, self.mr1, stateful=True)
+		I = reader.input_slicer(self.fa, self.mr1)
+		chrom_len = 20
+		chrom_quality = I.RC.chrom_qualities['Chr1']
+		for seq_len in (2,5):
+			for batch_size in (1,3,4):
+				for hvd_size in (1,2):
+					for hvd_rank in range(0,hvd_size):
+						size, rank = hvd_size, hvd_rank
+						#print "seq_len: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, batch_size, hvd_size, hvd_rank)
+						contigs_per_rank = int(batch_size/hvd_size)
+						if not contigs_per_rank and hvd_size > 1:
+							rank, size = 0, 1
+							contigs_per_rank = batch_size
+						max_contig_len = (2*chrom_len)/(batch_size+1)
+						n_batches = int(max_contig_len/seq_len)
+						starts = np.arange(batch_size)*(max_contig_len/2)
+						ends = starts+max_contig_len
+						EL = []
+						for iB in range(n_batches):
+							c = []
+							for iS in range(contigs_per_rank*rank, contigs_per_rank*(rank+1)):
+								region_start = starts[iS]+iB*seq_len
+								c.append(I._get_region('Chr1', region_start, chrom_len, chrom_quality, seq_len)[0])
+							EL.append(c)
+						CL = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, hvd_rank, hvd_size)]
+			
+						#print CL
+						#print EL
+						for c,x in IS.stateful_chrom_iter('Chr1', seq_len, 1, batch_size, hvd_rank, hvd_size):
+							self.assertEqual(x.shape, (contigs_per_rank, seq_len, 10))
+						self.assertEqual(CL, EL)
+					if hvd_size == 2:
+						R1 = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, 0, hvd_size)]
+						R2 = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, 1, hvd_size)]
+						self.assertEqual(len(R1), len(R2))
 	def test_input_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		IL = list(I.genome_iter())
 		#for c, x in IL:
 		#	print(''.join(map(lambda i: constants.index2base[i[0]], x)))
-		self.assertEqual(IL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3])
-		self.assertEqual(IL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3])
+		self.assertTrue(np.all(IL[0][1][0][0] == [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.all(IL[9][1][0][0] == [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
 		self.assertEqual(len(IL), 16+16)
 	def test_input_iter_10(self):
 		I = reader.input_slicer(self.fa, self.mr1)
@@ -133,28 +226,149 @@ class TestReader(unittest.TestCase):
 		I = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		XYL = list(I.genome_iter())
 		self.assertEqual(len(XYL), (20-5+1)*2)
-		self.assertEqual(XYL[0][1][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3])
-		self.assertEqual(XYL[9][1][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3])
-		self.assertEqual(XYL[9][2][0][constants.gff3_f2i['+CDS']], 1)
+		self.assertTrue(np.all(XYL[0][1][0][0] == [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.all(XYL[9][1][0][0] == [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
+		self.assertTrue(XYL[9][2][0][0][constants.gff3_f2i['+CDS']], 1)
 		for i in range(10, 15):
-			self.assertEqual(XYL[i][2][0][constants.gff3_f2i['-transposable_element']], 1)
-			self.assertEqual(XYL[i][2][0][len(constants.gff3_f2i)], 3)
-			self.assertEqual(XYL[i][2][0][len(constants.gff3_f2i)+1], 7)
-		self.assertEqual(sum(XYL[0][2][0]), 0)
-		self.assertEqual(sum(XYL[1][2][0]), 0)
-		self.assertEqual(sum(XYL[16][2][0]), 0)
-		self.assertEqual(sum(XYL[8][2][2]), 11)
-		self.assertEqual(sum(XYL[8][2][1]), 2)
+			self.assertEqual(XYL[i][2][0][0][constants.gff3_f2i['-transposable_element']], 1)
+			self.assertEqual(XYL[i][2][0][0][len(constants.gff3_f2i)], 3)
+			self.assertEqual(XYL[i][2][0][0][len(constants.gff3_f2i)+1], 7)
+		self.assertEqual(sum(XYL[0][2][0][0]), 0)
+		self.assertEqual(sum(XYL[1][2][0][0]), 0)
+		self.assertEqual(sum(XYL[16][2][0][0]), 0)
+		self.assertEqual(sum(XYL[8][2][0][2]), 11)
+		self.assertEqual(sum(XYL[8][2][0][1]), 2)
 		self.assertEqual(len(XYL), 16+16)
+	def test_mse_interval_midpoint(self):
+		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		x,y = MI._to_midpoint(0, 10, 0.5)
+		self.assertEqual(x, [5])
+		self.assertEqual(y, [0.5])
+	def test_mse_interval_range(self):
+		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		x,y = MI._to_range(0, 10, 0.5)
+		self.assertEqual(x, [0,10])
+		self.assertEqual(y, [0.5,0.5])
+	def test_mse_interval_single(self):
+		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		MI.add_batch([('Chr1',0,10),('Chr1',10,20)], 0.5)
+		MI.add_batch([('Chr1',5,15),('Chr2',0,5)], 1.0)
+		for n,m in (('mean',np.mean), ('median',np.median), ('sum',np.sum)):
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,5,n), m([0.5]*5))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,10,n), m([0.5]*10+[1.0]*5))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,15,n), m([0.5]*15+[1.0]*10))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,20,n), m([0.5]*20+[1.0]*10))
+			self.assertEqual(MI._region_to_agg_value('Chr3',0,5,n), -1)
+			self.assertEqual(MI._region_to_agg_value('Chr2',0,10,n), m([1.0]*5))
+			self.assertEqual(MI._region_to_xy('Chr1',0,5,n), ([2.5], [m([0.5]*5)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,10,n), ([5], [m([0.5]*10+[1.0]*5)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,15,n), ([7.5], [m([0.5]*15+[1.0]*10)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,20,n), ([10], [m([0.5]*20+[1.0]*10)]))
+			self.assertEqual(MI._region_to_xy('Chr3',0,5,n), ([2.5], [-1]))
+			self.assertEqual(MI._region_to_xy('Chr2',0,10,n), ([5], [m([1.0]*5)]))
+			x, y = MI.to_array('Chr1',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[0.5]*5, [0.5]*5+[1.0]*5, [0.5]*5+[1.0]*5, [0.5]*5]))
+			x, y = MI.to_array('Chr2',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
+	def test_mse_interval_distrib(self):
+		MI0 = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		MI1 = writer.MSE_interval(self.fa, 'mse_tmp', 1)
+		MI0.add_batch([('Chr1',0,10),('Chr1',10,20)], 0.5)
+		MI1.add_batch([('Chr1',5,15),('Chr2',0,5)], 1.0)
+		MI0.dump()
+		MI1.dump()
+		MI0.load_all()
+		MI1.load_all()
+		for n,m in (('mean',np.mean), ('median',np.median), ('sum',np.sum)):
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,5,n), m([0.5]*5))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,10,n), m([0.5]*10+[1.0]*5))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,15,n), m([0.5]*15+[1.0]*10))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,20,n), m([0.5]*20+[1.0]*10))
+			self.assertEqual(MI0._region_to_agg_value('Chr3',0,5,n), -1)
+			self.assertEqual(MI0._region_to_agg_value('Chr2',0,10,n), m([1.0]*5))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,5,n), ([2.5], [m([0.5]*5)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,10,n), ([5], [m([0.5]*10+[1.0]*5)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,15,n), ([7.5], [m([0.5]*15+[1.0]*10)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,20,n), ([10], [m([0.5]*20+[1.0]*10)]))
+			self.assertEqual(MI0._region_to_xy('Chr3',0,5,n), ([2.5], [-1]))
+			self.assertEqual(MI0._region_to_xy('Chr2',0,10,n), ([5], [m([1.0]*5)]))
+			x, y = MI0.to_array('Chr1',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[0.5]*5, [0.5]*5+[1.0]*5, [0.5]*5+[1.0]*5, [0.5]*5]))
+			x, y = MI0.to_array('Chr2',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
+	def test_mse_array_single(self):
+		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		MI.add_predict_batch([('Chr1',0,10),('Chr1',10,20)], \
+			np.array([[[0,1],[1,0]], [[0,1],[1,0]]]), \
+			np.array([[[1,0],[1,0]], [[1,0],[1,0]]])) # 0.5
+		MI.add_predict_batch([('Chr1',5,15),('Chr2',0,5)], \
+			np.array([[[0,1],[1,0]], [[0,1],[1,0]]]), \
+			np.array([[[1,0],[0,1]], [[1,0],[0,1]]])) # 1.0
+		for n,m in (('mean',np.mean), ('sum',np.sum)):
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,5,n), m([0.5]*5))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,10,n), m([0.5]*10+[1.0]*5))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,15,n), m([0.5]*15+[1.0]*10))
+			self.assertEqual(MI._region_to_agg_value('Chr1',0,20,n), m([0.5]*20+[1.0]*10))
+			self.assertEqual(MI._region_to_agg_value('Chr3',0,5,n), -1)
+			self.assertEqual(MI._region_to_agg_value('Chr2',0,10,n), m([1.0]*5))
+			self.assertEqual(MI._region_to_xy('Chr1',0,5,n), ([2.5], [m([0.5]*5)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,10,n), ([5], [m([0.5]*10+[1.0]*5)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,15,n), ([7.5], [m([0.5]*15+[1.0]*10)]))
+			self.assertEqual(MI._region_to_xy('Chr1',0,20,n), ([10], [m([0.5]*20+[1.0]*10)]))
+			self.assertEqual(MI._region_to_xy('Chr3',0,5,n), ([2.5], [-1]))
+			self.assertEqual(MI._region_to_xy('Chr2',0,10,n), ([5], [m([1.0]*5)]))
+			x, y = MI.to_array('Chr1',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[0.5]*5, [0.5]*5+[1.0]*5, [0.5]*5+[1.0]*5, [0.5]*5]))
+			x, y = MI.to_array('Chr2',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
+	def test_mse_array_distrib(self):
+		MI0 = writer.MSE_interval(self.fa, 'mse_tmp', 0)
+		MI1 = writer.MSE_interval(self.fa, 'mse_tmp', 1)
+		MI0.add_predict_batch([('Chr1',0,10),('Chr1',10,20)], \
+			np.array([[[0,1],[1,0]], [[0,1],[1,0]]]), \
+			np.array([[[1,0],[1,0]], [[1,0],[1,0]]])) # 0.5
+		MI1.add_predict_batch([('Chr1',5,15),('Chr2',0,5)], \
+			np.array([[[0,1],[1,0]], [[0,1],[1,0]]]), \
+			np.array([[[1,0],[0,1]], [[1,0],[0,1]]])) # 1.0
+		MI0.dump()
+		MI1.dump()
+		MI0.load_all()
+		MI1.load_all()
+		for n,m in (('mean',np.mean), ('sum',np.sum)):
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,5,n), m([0.5]*5))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,10,n), m([0.5]*10+[1.0]*5))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,15,n), m([0.5]*15+[1.0]*10))
+			self.assertEqual(MI0._region_to_agg_value('Chr1',0,20,n), m([0.5]*20+[1.0]*10))
+			self.assertEqual(MI0._region_to_agg_value('Chr3',0,5,n), -1)
+			self.assertEqual(MI0._region_to_agg_value('Chr2',0,10,n), m([1.0]*5))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,5,n), ([2.5], [m([0.5]*5)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,10,n), ([5], [m([0.5]*10+[1.0]*5)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,15,n), ([7.5], [m([0.5]*15+[1.0]*10)]))
+			self.assertEqual(MI0._region_to_xy('Chr1',0,20,n), ([10], [m([0.5]*20+[1.0]*10)]))
+			self.assertEqual(MI0._region_to_xy('Chr3',0,5,n), ([2.5], [-1]))
+			self.assertEqual(MI0._region_to_xy('Chr2',0,10,n), ([5], [m([1.0]*5)]))
+			x, y = MI0.to_array('Chr1',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[0.5]*5, [0.5]*5+[1.0]*5, [0.5]*5+[1.0]*5, [0.5]*5]))
+			x, y = MI0.to_array('Chr2',width=5, method=n)
+			self.assertEqual(x, [2.5, 7.5, 12.5, 17.5])
+			self.assertEqual(y, map(m, [[1.0]*5, [-1]*1, [-1]*1, [-1]*1]))
 	def test_vote(self):
 		from functools import reduce
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		OA = writer.output_aggregator(self.fa)
-		for c,x,y in IS.genome_iter():
+		for c,x,y in IS.genome_iter(offset=2, batch_size=2):
 			#iSet = reduce(set.union, [set(np.where(b == 1)[0]) for b in y])
 			#fList = sorted([constants.gff3_i2f[i] for i in iSet])
 			#print("%s:%i-%i [%s]"%(*c, ', '.join(fList)))
-			OA.vote(*c, array=y)
+			for i in range(len(c)):
+				OA.vote(*c[0], array=y[0])
 		out_lines = OA.write_gff3()
 		with open(self.gff3,'r') as GFF3:
 			for ol, fl in zip(out_lines, GFF3.readlines()):
@@ -164,202 +378,147 @@ class TestReader(unittest.TestCase):
 					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
 		#print('\n'.join(OA.write_gff3()))
-	def test_batch_gff3(self):
-		#12345678901234567890
-		#    1234567890123456
-		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		BL = list(IS.batch_iter(batch_size=4))
+	def test_batch_new(self):
+		IS = reader.input_slicer(self.fa, self.mr1)
+		BL = list(IS.genome_iter(seq_len=5, batch_size=4))
+		#for c,x in BL: print c
 		self.assertEqual(len(BL), 4+4)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
 			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, self.n_outputs))
-	def test_batch(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.batch_iter(seq_len=5, batch_size=4))
-		#for c,x in BL: print c
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		BL = list(IS.genome_iter(seq_len=5, batch_size=4))
 		self.assertEqual(len(BL), 4+4)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
 			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
 			if IS.gff3_file:
-				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
-	def test_batch_new(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.new_batch_iter(seq_len=5, batch_size=4))
-		#for c,x in BL: print c
-		self.assertEqual(len(BL), 4+4)
+				self.assertEqual(np.array(out[2]).shape, (4, 5, self.n_outputs))
+	def test_batch_stateful(self):
+		IS = reader.input_slicer(self.fa, self.mr1, stateful=True)
+		I = reader.input_slicer(self.fa, self.mr1)
+		BL = list(IS.stateful_chrom_iter(chrom='Chr1', seq_len=5, batch_size=2))
+		#for c,x in BL:
+		#	print c
+		#	for seq in x: print seq
+		self.assertEqual(len(BL), 2)
 		for out in BL:
 			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
-			self.assertEqual(np.array(out[1]).shape, (4, 5, 10))
+			if IS.gff3_file:
+				c,x,y = out
+			else:
+				c,x = out
+			self.assertEqual(np.array(x).shape, (2, 5, 10))
+			for i, region in enumerate(c):
+				c_region, x_region = I._get_region(region[0], region[1], 20, 3, 5)
+				self.assertTrue(np.all(x_region == x[i]))
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
 	def test_batch_10(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.batch_iter(seq_len=10, batch_size=11))
-		self.assertEqual(len(BL), np.round(22/11))
-		for out in BL:
-			self.assertEqual(len(out), 2)
-			self.assertEqual(np.array(out[1]).shape, (11, 10, 10))
-	def test_batch_new_10(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.new_batch_iter(seq_len=10, batch_size=11))
+		BL = list(IS.genome_iter(seq_len=10, batch_size=11))
 		self.assertEqual(len(BL), np.round(22/11))
 		for out in BL:
 			self.assertEqual(len(out), 2)
 			self.assertEqual(np.array(out[1]).shape, (11, 10, 10))
 	def test_batch_uneven(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.batch_iter(batch_size=5))
+		BL = list(IS.genome_iter(batch_size=5))
 		#for c,x in BL: print c
-		self.assertEqual(len(BL), 7)
-		for out in BL[:-1]:
+		self.assertEqual(len(BL), 6)
+		for out in BL:
 			self.assertEqual(len(out), 2)
 			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
-		out = BL[-1]
-		self.assertEqual(np.array(out[1]).shape, (2, 5, 10))
-	def test_batch_new_uneven(self):
-		IS = reader.input_slicer(self.fa, self.mr1)
-		BL = list(IS.new_batch_iter(batch_size=5))
-		#for c,x in BL: print c
-		self.assertEqual(len(BL), 8)
-		for out in BL[:3]:
-			self.assertEqual(len(out), 2)
-			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
-		for out in BL[4:7]:
-			self.assertEqual(len(out), 2)
-			self.assertEqual(np.array(out[1]).shape, (5, 5, 10))
-		for index in (3,7):
-			self.assertEqual(len(BL[index][0]), 1)
-			self.assertEqual(BL[index][1].shape, (1,5,10))
-	def test_batch_new_vs_old(self):
-		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		c_old, x_old, y_old = [], [], []
-		c_new, x_new, y_new = [], [], []
-		for cb, xb, yb in IS.new_batch_iter(seq_len=3, batch_size=5):
-			c_new += cb
-			x_new += list(xb)
-			y_new += list(yb)
-		for cb, xb, yb in IS.batch_iter(seq_len=3, batch_size=5):
-			c_old += cb
-			x_old += xb
-			y_old += list(yb)
-		#print "old"
-		#for i in c_old: print i
-		#print "new"
-		#for i in c_new: print i
-		self.assertEqual(c_old, c_new)
-		self.assertEqual(np.array(x_old).shape, np.array(x_new).shape)
-#		for i in range(len(x_old)):
-#			print c_old[i]==c_new[i], c_old[i], c_new[i]
-#			for j in range(len(x_old[i])):
-#				print np.array_equal(x_old[i][j],x_new[i][j]), x_old[i][j], x_new[i][j]
-		self.assertTrue(np.array_equal(np.array(x_old), np.array(x_new)))
-		self.assertTrue(np.array_equal(np.array(y_old), np.array(y_new)))
 	def test_same_model(self):
 		if not self.test_model: return
 		seq_len = 5
-		model.reset_graph()
-		# create models
-		models = []
+		mse_lists = [[], []]
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		for i in range(2):
 			name = 'model_%i'%(i)
 			m = model.sleight_model(name, self.n_inputs, seq_len, self.n_outputs, \
-				n_neurons=20, n_layers=1, learning_rate=0.001, training_keep=0.95, \
-				dropout=False, cell_type='rnn', peep=False, stacked=False, \
-				bidirectional=False, reg_losses=False, hidden_list=[])
-			models.append(m)
-		# train models
-		for epoch in range(3):
-			IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-			for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
-				mse = [m.train(xb, yb)[0] for m in models]
-				self.assertEqual(mse[0], mse[1])
+				n_neurons=20, n_layers=1, learning_rate=0.001, dropout=0, \
+				cell_type='rnn', reg_kernel=False, reg_bias=False, reg_activity=False, \
+				l1=0, l2=0, bidirectional=False, merge_mode='concat', \
+				stateful=False, hidden_list=[], save_dir='.')
+			for epoch in range(2):
+				for cb, xb, yb in IS.genome_iter(seq_len, batch_size=20-seq_len+1):
+					mse, acc, time = m.train(xb, yb)
+					mse_lists[i].append(mse)
+			del m
+		self.assertEqual(mse_lists[0], mse_lists[1])
 	def test_model_effect(self):
+		def train_mse(IS, m, epoch=3):
+			seq_len, out_mse = 5, []
+			for e in range(epoch):
+				out_mse += [m.train(x,y)[0] for c,x,y in IS.genome_iter(seq_len, batch_size=20-seq_len+1)]
+			return out_mse
 		if not self.test_model: return
 		seq_len = 5
-		model.reset_graph()
-		# create models
-		models = [model.sleight_model('d%i'%(i), self.n_inputs, seq_len, self.n_outputs) for i in range(2)]
-		models.append(model.sleight_model('neurons', self.n_inputs, seq_len, self.n_outputs, n_neurons=50))
-		models.append(model.sleight_model('layers', self.n_inputs, seq_len, self.n_outputs, n_layers=2))
-		models.append(model.sleight_model('learning', self.n_inputs, seq_len, self.n_outputs, learning_rate=0.01))
-		models.append(model.sleight_model('dropout', self.n_inputs, seq_len, self.n_outputs, training_keep=0.9, dropout=True))
-		models.append(model.sleight_model('lstm', self.n_inputs, seq_len, self.n_outputs, cell_type='lstm'))
-		models.append(model.sleight_model('lstm_peep', self.n_inputs, seq_len, self.n_outputs, cell_type='lstm', peep=True))
-		models.append(model.sleight_model('peep', self.n_inputs, seq_len, self.n_outputs, peep=True))
-		models.append(model.sleight_model('stacked', self.n_inputs, seq_len, self.n_outputs, stacked=True))
-		models.append(model.sleight_model('bidirectional', self.n_inputs, seq_len, self.n_outputs, bidirectional=True))
-		models.append(model.sleight_model('reg_losses', self.n_inputs, seq_len, self.n_outputs, reg_losses=True))
-		models.append(model.sleight_model('reg_losses_stacked', self.n_inputs, seq_len, self.n_outputs, stacked=True, reg_losses=True))
-		models.append(model.sleight_model('hidden', self.n_inputs, seq_len, self.n_outputs, hidden_list=[10]))
-		# train models
-		first = True
-		for epoch in range(3):
-			IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-			for cb, xb, yb in IS.new_batch_iter(seq_len, batch_size=20-seq_len+1):
-				mse = [m.train(xb, yb)[0] for m in models]
-				# Should be qual
-				self.assertEqual(mse[0], mse[1])
-				self.assertEqual(mse[0], mse[8])
-				self.assertEqual(mse[0], mse[11])
-				if first:
-					self.assertEqual(mse[0], mse[4])
-				else:
-				# Should be different
-					self.assertNotEqual(mse[0], mse[4])
-				self.assertNotEqual(mse[0], mse[2])
-				self.assertNotEqual(mse[0], mse[3])
-				self.assertNotEqual(mse[0], mse[5])
-				self.assertNotEqual(mse[0], mse[6])
-				self.assertNotEqual(mse[0], mse[7])
-				self.assertNotEqual(mse[0], mse[9])
-				self.assertNotEqual(mse[0], mse[10])
-				self.assertNotEqual(mse[0], mse[12])
-				self.assertNotEqual(mse[11], mse[12])
-				self.assertNotEqual(mse[0], mse[13])
-				first = False
-	def test_train_01(self):
-		if not self.test_model: return
-		from random import shuffle, random
-		seq_len = 15
-		batch_size = 20-seq_len+1
-		model.reset_graph()
-		# create models
-		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, \
-			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model')
-		# train models
-		ts = time()
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		ISBL = list(IS.new_batch_iter(seq_len, batch_size))
+		constant_args = (self.n_inputs, seq_len, self.n_outputs)
+		# Baseline
+		baseline_mse = train_mse(IS,  model.sleight_model('default', *constant_args))
+		#print baseline_mse
+		# Variations
+		neurons_mse = train_mse(IS,  model.sleight_model('neurons', *constant_args, n_neurons=100))
+		layers_mse = train_mse(IS,  model.sleight_model('layers', *constant_args, n_layers=3))
+		learning_mse = train_mse(IS,  model.sleight_model('learning', *constant_args, learning_rate=0.01))
+		dropout_mse = train_mse(IS,  model.sleight_model('dropout', *constant_args, dropout=0.10))
+		lstm_mse = train_mse(IS,  model.sleight_model('lstm', *constant_args, cell_type='lstm'))
+		bidirectional_mse = train_mse(IS,  model.sleight_model('bidirectional', *constant_args, bidirectional=True))
+		bias_mse = train_mse(IS,  model.sleight_model('bias', *constant_args, reg_bias=True, l1=0.1))
+		hidden_mse = train_mse(IS,  model.sleight_model('hidden', *constant_args, hidden_list=[50]))
+		baseline2_mse = train_mse(IS,  model.sleight_model('default', *constant_args))
+		# Check baseline
+		self.assertEqual(len(baseline_mse), len(baseline2_mse))
+		self.assertTrue(baseline_mse == baseline2_mse)
+		# Make sure different parameters had an effect
+		for mse_list in (neurons_mse, layers_mse, dropout_mse, lstm_mse, bidirectional_mse, hidden_mse):
+			#print mse_list
+			self.assertEqual(len(baseline_mse), len(mse_list))
+			for i in range(len(mse_list)):
+				self.assertNotEqual(baseline_mse[i], mse_list[i])
+		for mse_list in (learning_mse, bias_mse):
+			#print mse_list
+			self.assertEqual(len(baseline_mse), len(mse_list))
+			self.assertEqual(baseline_mse[0], mse_list[0])
+			for i in range(1,len(mse_list)):
+				self.assertNotEqual(baseline_mse[i], mse_list[i])
+	def test_train_01(self):
+		def a2s(a):
+			return '['+', '.join(map(lambda x: '%.2f'%(x), a))+']'
+		if not self.test_model: return
+		batch_size = 20-self.seq_len+1
+		# create models
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
+			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
+			cell_type='rnn')
+		# train models
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		ISBL = list(IS.genome_iter(self.seq_len, batch_size=batch_size))
+		#for c,x,y in ISBL:
+		#	for i in range(len(c)):
+		#		chrom, start, end = c[i]
+		#		print c[i]
+		#		for j,k in enumerate(range(start, end)):
+		#			print "%s %2i %s"%(chrom, k, a2s(x[i][j])), np.nonzero(y[i][j])[0]
+		#M.model.fit(x_batch, y_batch, batch_size=batch_size, epochs=50, shuffle=True)
 		for epoch in range(1,self.n_epoch+1):
-			for cb, xb, yb in ISBL:
-				# shuffle indices
-				self.assertEqual(len(xb), batch_size)
-				randInds = list(range(len(xb)))
-				shuffle(randInds)
-				xbs = [xb[i] for i in randInds]
-				ybs = [yb[i] for i in randInds]
-				if random() > 0.2:
-					M.train(xbs, ybs)
-			if epoch % 500 == 0:
-				#print("Trained epoch %i in %.2f seconds"%(epoch, time()-ts))
-				ts = time()
+			for c,x,y in ISBL:
+				mse,acc,time = M.train(x,y)
 		M.save()
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		# Vote
 		OA = writer.output_aggregator(self.fa)
-		for c, xb, yb in IS.new_batch_iter(seq_len, batch_size=1):
+		for c, xb, yb in IS.genome_iter(self.seq_len, batch_size=1):
 			y = yb[0]
 			y_pred = M.predict(xb)[0]
 			for feature_index in range(len(y[0])):
-				yl, ypl = [], []
-				for base_index in range(len(y)):
-					yl.append('%i'%(y[base_index][feature_index]))
-					ypl.append('%i'%(y_pred[base_index][feature_index]))
-				ys = ', '.join(yl)
-				yps = ', '.join(ypl)
+				ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+				yps = ', '.join([str(y_pred[bi][feature_index]) for bi in range(len(y))])
 				if ys != yps:
 					print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
 			self.assertTrue(np.array_equal(y, y_pred))
@@ -375,28 +534,22 @@ class TestReader(unittest.TestCase):
 					self.assertEqual(ols, fls)
 	def test_train_02_restore(self):
 		if not self.test_model: return
-		from random import shuffle, random
-		seq_len = 15
-		batch_size = 20-seq_len+1
-		model.reset_graph()
+		batch_size = 20-self.seq_len+1
 		# create models
-		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, \
-			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model')
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
+			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
+			cell_type='rnn')
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		M.restore()
 		# Vote
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		OA = writer.output_aggregator(self.fa)
-		for c, xb, yb in IS.new_batch_iter(seq_len, batch_size=1):
+		for c, xb, yb in IS.genome_iter(self.seq_len, batch_size=1):
 			y = yb[0]
 			y_pred = M.predict(xb)[0]
 			for feature_index in range(len(y[0])):
-				yl, ypl = [], []
-				for base_index in range(len(y)):
-					yl.append('%i'%(y[base_index][feature_index]))
-					ypl.append('%i'%(y_pred[base_index][feature_index]))
-				ys = ', '.join(yl)
-				yps = ', '.join(ypl)
+				ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+				yps = ', '.join([str(y_pred[bi][feature_index]) for bi in range(len(y))])
 				if ys != yps:
 					print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0][0], c[0][1], c[0][2], feature_index, ys, yps))
 			self.assertTrue(np.array_equal(y, y_pred))
@@ -411,7 +564,88 @@ class TestReader(unittest.TestCase):
 					fls = fl.rstrip('\n').split('\t')[:9]
 					self.assertEqual(ols, fls)
 		if os.path.exists(M.save_dir):
-			from shutil import rmtree
+			rmtree(M.save_dir)
+	def test_train_stateful_01(self):
+		def a2s(a):
+			return '['+', '.join(map(lambda x: '%.2f'%(x), a))+']'
+		def non_zero(a):
+			return ' '.join(["%i:%i"%(i,a[i]) for i in np.nonzero(a)[0]])
+		if not self.test_model: return
+		seq_len, batch_size = 4, 4
+		# create models
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
+			learning_rate=0.01, bidirectional=False, save_dir='test_model', \
+			cell_type='lstm', stateful=batch_size)
+		# train models
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3, stateful=True)
+		for epoch in range(1,50+1):
+			M.model.reset_states()
+			for chrom in sorted(IS.FA.references):
+				for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, batch_size):
+					mse,acc,time = M.train(xb,yb)
+				M.model.reset_states()
+			#print epoch, mse
+		M.save()
+		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
+		# Vote
+		OA = writer.output_aggregator(self.fa)
+		for chrom in sorted(IS.FA.references):
+			M.model.reset_states()
+			for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, batch_size=4):
+				#xb = np.tile(xb, (batch_size,1,1))
+				#print xb.shape
+				y_pred_batch = M.predict(xb)
+				for c, x, y, yp in zip(cb, xb, yb, y_pred_batch):
+					#for feature_index in range(len(y[0])):
+					#	ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+					#	yps = ', '.join([str(yp[bi][feature_index]) for bi in range(len(y))])
+					#	if ys != yps:
+					#		print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0], c[1], c[2], feature_index, ys, yps))
+					#self.assertTrue(np.array_equal(y, yp))
+					OA.vote(*c, array=yp, overwrite=True)
+		# Compare
+		out_lines = OA.write_gff3()
+		with open(self.gff3,'r') as GFF3:
+			for ol, fl in zip(out_lines, GFF3.readlines()):
+				if ol[0] != '#':
+					ols = ol.split('\t')[:9]
+					ols[1] = 'test'
+					fls = fl.rstrip('\n').split('\t')[:9]
+					self.assertEqual(ols, fls)
+	def test_train_stateful_02(self):
+		if not self.test_model: return
+		seq_len, batch_size = 4,4
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3, stateful=True)
+		# create models
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
+			learning_rate=0.01, bidirectional=False, save_dir='test_model', \
+			cell_type='lstm', stateful=batch_size)
+		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
+		M.restore()
+		# Vote
+		OA = writer.output_aggregator(self.fa)
+		for chrom in sorted(IS.FA.references):
+			M.model.reset_states()
+			for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, batch_size=4):
+				y_pred_batch = M.predict(xb)
+				for c, x, y, yp in zip(cb, xb, yb, y_pred_batch):
+					#for feature_index in range(len(y[0])):
+					#	ys = ', '.join([str(y[bi][feature_index]) for bi in range(len(y))])
+					#	yps = ', '.join([str(yp[bi][feature_index]) for bi in range(len(y))])
+					#	if ys != yps:
+					#		print("%s:%i-%i FI:%2i Y=[%s]  Y_PRED=[%s]"%(c[0], c[1], c[2], feature_index, ys, yps))
+					#self.assertTrue(np.array_equal(y, yp))
+					OA.vote(*c, array=yp, overwrite=True)
+		# Compare
+		out_lines = OA.write_gff3()
+		with open(self.gff3,'r') as GFF3:
+			for ol, fl in zip(out_lines, GFF3.readlines()):
+				if ol[0] != '#':
+					ols = ol.split('\t')[:9]
+					ols[1] = 'test'
+					fls = fl.rstrip('\n').split('\t')[:9]
+					self.assertEqual(ols, fls)
+		if os.path.exists(M.save_dir):
 			rmtree(M.save_dir)
 	def test_train_cli_01(self):
 		if not self.test_model: return
@@ -420,20 +654,21 @@ class TestReader(unittest.TestCase):
 			'-D', 'test_cli', \
 			'-N', 'plain', \
 			'-M', self.mr1, \
-			'-B', '6', \
 			'train', \
+			'-B', '6', \
 			'-A', self.gff3, \
 			'-E', str(self.n_epoch), \
 			'-r', str(self.learning_rate), \
 			'-L', '15', \
-			'-b', '-f', \
-			'-C', 'rnn']
+			'-n', '60', \
+			'-b', '-f']
 		with patch('sys.argv', testArgs):
 			teamRNN.main()
 		output = logStream.getvalue()
 		splitOut = output.split('\n')
 		self.assertTrue('Done' in splitOut[-2])
-		self.assertTrue(os.path.exists('test_cli/plain_i15x10_birnn1x100_learn%.3f_pF_sF_d0.95_rF_h0.ckpt.index'%(self.learning_rate)))
+		#for f in glob('test_cli/*'): print f
+		self.assertTrue(os.path.exists('test_cli/plain_s15x10_o68_1xbilstm60_merge-concat_statefulF_learn%s_drop0.h5'%(str(self.learning_rate))))
 		self.assertTrue(os.path.exists('test_cli/config.pkl'))
 	def test_train_cli_02(self):
 		if not self.test_model: return
@@ -442,7 +677,6 @@ class TestReader(unittest.TestCase):
 			'-D', 'test_cli', \
 			'-N', 'plain', \
 			'-M', self.mr1, \
-			'-B', '6', \
 			'classify', \
 			'-O', 'test_cli/out.gff3']
 		with patch('sys.argv', testArgs):
@@ -461,8 +695,66 @@ class TestReader(unittest.TestCase):
 				cli_split = cli_line.rstrip('\n').split('\t')
 				self.assertEqual(test_split, cli_split)
 		if os.path.exists('test_cli'):
-			from shutil import rmtree
 			rmtree('test_cli')
+	def test_stateful_cli_01(self):
+		if not self.test_model: return
+		out_dir, lr, sl = 'test_stateful_cli', '0.01', '4'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'train', \
+			'-B', '4', \
+			'-A', self.gff3, \
+			'-E', '100', \
+			'-r', lr, \
+			'-l', '1', \
+			'-L', sl, \
+			'-n', '80', \
+			'--stateful', \
+			'-f']
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		self.assertTrue('Done' in splitOut[-2])
+		#for f in glob('test_cli/*'): print f
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o68_1xlstm80_stateful4_learn%s_drop0.h5'%(out_dir, sl, lr)))
+		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
+	def test_stateful_cli_02(self):
+		if not self.test_model: return
+		out_dir = 'test_stateful_cli'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'classify', \
+			'-O', '%s/out.gff3'%(out_dir)]
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		#for so in splitOut: print so
+		self.assertTrue('Done' in splitOut[-2])
+		self.assertTrue(os.path.exists('%s/out.gff3'%(out_dir)))
+		F1 = open(self.gff3,'r')
+		F2 = open('%s/out.gff3'%(out_dir),'r')
+		for test_line, cli_line in zip(F1.readlines(), F2.readlines()):
+			if cli_line[0] != '#':
+				test_split = test_line.rstrip('\n').split('\t')
+				test_split[1] = 'teamRNN'
+				cli_split = cli_line.rstrip('\n').split('\t')
+				self.assertEqual(test_split, cli_split)
+		if os.path.exists(out_dir):
+			rmtree(out_dir)
+
+def find_max(seq_len, offset, batch_size, hvd_size, chrom_len=20):
+	full_len = seq_len+(batch_size-1)*offset
+	return max([len(range(r*offset*batch_size, \
+			chrom_len-full_len+1, \
+			hvd_size*offset*batch_size)) for r in range(hvd_size)])
 
 if __name__ == "__main__":
 	unittest.main()

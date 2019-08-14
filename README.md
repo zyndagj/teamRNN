@@ -25,6 +25,85 @@ python setup.py test
 
 > We recommend installing first since some the dependencies are rather large
 
+## Usage
+
+teamRNN has three different argument sections
+
+- **Top-level** parameters that specify inputs and the location for storing the model
+- **Training** parameters that define the model structure and how training should be run
+- **Classification** parameters for controlling classification output
+
+### Top-level data and location parameters
+
+| Parameter | Argument | Default | Description |
+|-----------|----------|---------|-------------|
+| `-R/--reference` | FASTA | | The fasta reference file for the organism |
+| `-D/--directory` | DIR | `./model` | The directory for all model files |
+| `-N/--name` | STR | default | The name of the model, which allows for the creation of multiple models of the same structure in the same directory without overwriting each other |
+| `-M/--methratio` | FILE | | Methratio file used as input (generated with BSMAP) |
+| `-o/--offset` | INT | 1 | Number of based to slide between windows.<br>*NOTE: This number should not exceed the sequence size, but should be larger than 1 for performance* |
+| `-Q/--quality` | INT | -1 | Input assembly quality: <ol start="-1"><li>auto detect</li><li>unknown</li><li>contig</li><li>scaffold</li><li>chromosome</li></ol> |
+| `-P/--ploidy` | INT | 2 | Input genome ploidy (cannot be determined automatically) |
+
+```bash
+usage: teamRNN [-h] -R FASTA [-D DIR] [-N STR] -M FILE [-o INT]
+               [-Q INT] [-P INT] [-v] {train,classify} ...
+```
+
+### Training / Model specification
+
+```bash
+usage: teamRNN train [-h] -A GFF3 [-E INT] [-B INT] [-L INT] [-n INT]
+         [-l INT] [-r FLOAT] [-d FLOAT] [-C STR] [-b] [-m STR] [-S]
+		 [--reg_kernel] [--reg_bias] [--reg_activity] [--l1 FLOAT]
+		 [--l2 FLOAT] [-H STR] [-f] [--train STR] [--test STR]
+```
+
+| Parameter | Argument | Default | Description |
+|-----------|----------|---------|-------------|
+| `-A/--annotation` | GFF3 | | GFF3 reference annotation used for training |
+| `-B/--batch_size` | INT | 100 | This functions differently with distributed execution<br><dl><dt>Independent Batches</dt><dd>Each MPI rank will process `B` batches</dd><dt>Stateful Batches</dt><dd>To keep stateful sequence lengths consistent at different scales, each MPI rank from a pool of `N` ranks will process `int(B/N)` batches</dd></dl> |
+| `-L/--sequence_length` | INT | 500 | Genome will be classified in sequences of this length. Small values will make the detection of long features difficult, while large values will require more memory and near-zero gradients |
+| `-n/--neurons` | INT | 100 | The number of neurons in each RNN/LSTM cell |
+| `-l/--layers` | INT | 1 | The number of RNN/LSTM layers |
+| `-d/--dropout` | FLOAT | 0.0 | Fraction of the units to drop for the linear transformation of the inputs at each recurrent layer |
+| `-c/--cell_type` | STR | lstm | The recurrent layers consist of either {lstm, rnn} cells |
+| `-b/--bidirectional` | | False | Recurrent layers are bidirectional(incompatible with stateful) |
+| `-m/--merge` | STR | concat | Bidirectional layers can be merged with the following operations:<br><ul><li>concat - concatenation</li><li>sum - summation</li><li>mul - multiplication</li><li>ave - average</li><li>none</li></ul> |
+| `-S/--stateful` | | False | The recurrent model is executed statefully (incompatible with bidirectional) |
+| `--reg_kernel` | | False | Apply a regularizer to the kernel weights matrix |
+| `--reg_bias` | | False | Apply a regularizer to the bias vector |
+| `--reg_activity` | | False | Apply a regularizer to the activation layer |
+| `--l1` | FLOAT | 0.01 | L1 regularizer lambda (Lasso) |
+| `--l2` | FLOAT | 0.0 | L2 regularizer lambda (Ridge)<br><sub>*NOTE: Setting either L1 or L2 to 0 will exclude that regularization function, allowing for different combinations*</sub> |
+| `-H/--hidden_list` | STR | | Comma separated list of time distributed hidden layers to add after recurrent layers<br><br><sub>The argument `20,50` would add 2 time-distributed hidden layers. The first would have 20 neurons, and the second would have 50.</sub> |
+| `-r/--learning_rate` | FLOAT | 0.001 | The learning rate of the optimizer |
+| `-E/--epochs` | INT | 100 | Number of training epochs |
+| `--train` | STR | all | Comma separated list of chromosomes to train on |
+| `--test` | STR | none | Comma separated list of chromosomes to test on |
+| `-f/--force` | | False | Overwrite a previously saved model |
+
+### Classification
+
+```
+usage: teamRNN classify [-h] [-O GFF3] [-T FLOAT]
+```
+
+| Parameter | Argument | Default | Description |
+|-----------|----------|---------|-------------|
+| `-O/--output` | FILE | output.gff3 | Output GFF3 file with predicted annotation |
+| `-T/--threshold` | FLOAT | 0.5 | This functions differently with statefulness<br><dl><dt>Independent Batches</dt><dd>Overlapping predictions will vote on the final output, and the final prediction will need at least `-T` of the votes.</dd><dt>Stateful Batches</dt><dd>Since stateful sequences may take a batch or two to correctly predict their state, voting is not used. Instead, later predictions overwrite later predictions they overlap with.</dd></dl>
+
+### Example usage
+
+```bash
+# Train
+teamRNN train
+
+# Classify
+teamRNN classify
+```
+
 ## Input specification
 
 Batch Input = [batch x sequence_length x input_size]
@@ -69,9 +148,9 @@ Valid characters taken from [FASTA specification](https://en.wikipedia.org/wiki/
 ### Fraction of chromosome - (0, 1]
 
 
-Besides conveying a relative position to the model, genes are known to cluster on the chromosome arms and repetative elements are easily found in the heterochromatin.
+Besides conveying a relative position to the model, genes are known to cluster on the chromosome arms and repetitive elements are easily found in the heterochromatin.
 
-For a 100 basepair chromosome, we would see the following values.
+For a 100 base pair chromosome, we would see the following values.
 
 | 0-index | Fraction | Explanation |
 |---------|----------|-------------|
@@ -175,7 +254,7 @@ Mapping rules for *Z. mays*:
 | 3	| [LTR](https://en.wikipedia.org/wiki/LTR_retrotransposon) | Long terminal repeat |
 | 4	| [Low_complexity](http://www.repeatmasker.org/webrepeatmaskerhelp.html) | Tandem repeats, polypurine, and AT-rich regions |
 | 5	| [RC](https://en.wikipedia.org/wiki/Rolling_circle_replication) | Rolling circle replication |
-| 6	| [Retroposon](https://en.wikipedia.org/wiki/Retroposon) | Repetative DNA fragments that were reverse transcribed from RNA |
+| 6	| [Retroposon](https://en.wikipedia.org/wiki/Retroposon) | Repetitive DNA fragments that were reverse transcribed from RNA |
 | 7	| [rRNA](https://en.wikipedia.org/wiki/Ribosomal_RNA) | Ribosomal RNA |
 | 8	| [Satellite](https://en.wikipedia.org/wiki/Satellite_DNA) | Large arrays of tandemly repeating, non-coding DNA |
 | 9	| [Simple_repeat](http://www.repeatmasker.org/webrepeatmaskerhelp.html) | Micro-satellites |
