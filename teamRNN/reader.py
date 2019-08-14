@@ -11,7 +11,7 @@ from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index,
 from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam_i2f
 from teamRNN.util import irange, iterdict
 from collections import defaultdict as dd
-import re, logging, os
+import re, logging, os, h5py
 logger = logging.getLogger(__name__)
 try:
 	import cPickle as pickle
@@ -70,24 +70,50 @@ class refcache:
 		return self.chrom_caches[chrom][sI:eI]
 
 class gff3_interval:
-	def __init__(self, gff3, include_chrom=False, force=False):
+	def __init__(self, gff3, fa=False, include_chrom=False, force=False):
 		self.gff3 = gff3
 		self.pkl = "%s.pkl"%(gff3)
+		self.h5_file = "%s.h5"%(gff3)
 		self.force = force
+		self.H5 = False
 		self._order_re = re.compile('Order=(?P<order>[^;/]+)')
 		self._sufam_re = re.compile('Superfamily=(?P<sufam>[^;]+)')
-		# creates self.interval_tree
-		self._2tree(include_chrom)
-	def _2tree(self, include_chrom=False):
+		# creates self.interval_tree and self.H5
+		self._2tree(fa, include_chrom)
+	def __del__(self):
+		self.close()
+	def close(self):
+		if self.H5: self.H5.close()
+	def _init_h5(self, fa):
+		if not fa:
+			logger.debug("No fasta included, not creating HDF5 file")
+			return False
+		H5 = h5py.File(self.h5_file, 'w')
+		ram = {}
+		self.chrom_lengths = {}
+		with FastaFile(fa) as FA:
+			dim = len(gff3_f2i)+2
+			for chrom in sorted(FA.references):
+				chrom_len = FA.get_reference_length(chrom)
+				self.chrom_lengths[chrom] = chrom_len
+				H5.create_dataset(chrom, (chrom_len, dim), compression='lzf', chunks=True, fillvalue=0, dtype='B')
+				ram[chrom] = np.zeros((chrom_len, dim), dtype=np.uint8)
+				logger.debug("Created [%i, %i] data set for chromosome %s in %s"%(chrom_len, dim, chrom, self.h5_file))
+		return H5, ram
+	def _2tree(self, fa, include_chrom=False):
 		#Chr1    TAIR10  transposable_element_gene       433031  433819  .       -       .       ID=AT1G02228;Note=transposable_element_gene;Name=AT1G02228;Derives_from=AT1TE01405
 		exclude = set(['chromosome','contig','supercontig']) if include_chrom else set([])
 		self.interval_tree = dd(IntervalTree)
-		if os.path.exists(self.pkl) and not self.force:
+		if not self.force and os.path.exists(self.pkl):
 			with open(self.pkl,'rb') as P:
 				chrom_file_dict = pickle.load(P)
 			for chrom, pkl_file in iterdict(chrom_file_dict):
 				self.interval_tree[chrom].load(pkl_file)
+			if os.path.exists(self.h5_file):
+				self.H5 = h5py.File(self.h5_file, 'r')
 			return
+		# Create hdf5 file and datasets
+		H5, ram = self._init_h5(fa)
 		with open(self.gff3,'r') as IF:
 			for line in filter(lambda x: x[0] != "#", IF):
 				tmp = line.rstrip('\n').split('\t')
@@ -106,6 +132,20 @@ class gff3_interval:
 					start, end = map(int, tmp[3:5])
 					self.interval_tree[chrom].add(start-1, end, (element_id, te_order_id, te_sufam_id))
 		logger.debug("Finished creating interval trees")
+		if H5:
+			for chrom in ram.keys():
+				ramchrom = ram[chrom]
+				for interval in self.interval_tree[chrom].search(0,self.chrom_lengths[chrom]):
+					s,e,d = interval.start, interval.end, interval.data
+					eid,oid,sid = d
+					ramchrom[s:e,eid] = 1
+					if oid: ramchrom[s:e,-2] = oid
+					if sid: ramchrom[s:e,-1] = sid
+				H5[chrom].write_direct(ram[chrom])
+				del ramchrom, ram[chrom]
+			H5.close()
+			self.H5 = h5py.File(self.h5_file, 'r')
+			logger.debug("Finished creating H5 file")
 		chrom_file_dict = {chrom:'%s.%s.pkl'%(self.gff3, chrom) for chrom in self.interval_tree}
 		for chrom, pkl_file in iterdict(chrom_file_dict):
 			self.interval_tree[chrom].dump(pkl_file)
@@ -119,6 +159,13 @@ class gff3_interval:
 		sufam_str = sufam_match.group('sufam') if sufam_match else ''
 		return (order_str, sufam_str)
 	def fetch(self, chrom, start, end):
+		if self.H5 and end-start > 2000:
+			return self._fetch_h5(chrom, start, end)
+		else:
+			return self._fetch_tree(chrom, start, end)
+	def _fetch_h5(self, chrom, start, end):
+		return self.H5[chrom][start:end]
+	def _fetch_tree(self, chrom, start, end):
 		outA = np.zeros((end-start, len(gff3_f2i)+2), dtype=np.uint8)
 		#print("Fetching %s:%i-%i"%(chrom, start, end))
 		for interval in self.interval_tree[chrom].search(start,end):
@@ -127,8 +174,8 @@ class gff3_interval:
 			element_id, te_order_id, te_sufam_id = interval.data
 			#print("Detected %s at %i-%i"%(i,s,e))
 			outA[s:e,element_id] = 1
-			outA[s:e,-2] = te_order_id
-			outA[s:e,-1] = te_sufam_id
+			if te_order_id: outA[s:e,-2] = te_order_id
+			if te_sufam_id: outA[s:e,-1] = te_sufam_id
 		return outA
 
 class input_slicer:

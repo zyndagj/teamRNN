@@ -199,29 +199,30 @@ class TestReader(unittest.TestCase):
 		#Chr2    test    gene    2       15      .       -       .       ID=team_5
 		#Chr2    test    exon    3       7       .       -       .       ID=team_6
 		#Chr2    test    exon    9       14      .       -       .       ID=team_7
-		GI = reader.gff3_interval(self.gff3, force=True)
-		res1 = GI.fetch('Chr1', 0, 15)
-		tmp = np.zeros((15, self.n_outputs), dtype=np.uint8)
-		tmp[2:10,constants.gff3_f2i['+CDS']] = 1
-		tmp[2:10,constants.gff3_f2i['+gene']] = 1
-		tmp[3:7,constants.gff3_f2i['+exon']] = 1
-		tmp[10:15,constants.gff3_f2i['-transposable_element']] = 1
-		tmp[10:15,len(constants.gff3_f2i)] = constants.te_order_f2i['ltr']
-		tmp[10:15,len(constants.gff3_f2i)+1] = constants.te_sufam_f2i['gypsy']
-		self.assertEqual(res1.shape, tmp.shape)
-		for i in range(15):
-			if not np.array_equal(res1[i], tmp[i]):
-				print("At index %i"%(i))
-				print("Code:",res1[i])
-				print("Test:",tmp[i])
-		self.assertTrue(np.array_equal(res1, tmp))
-		res2 = GI.fetch('Chr2', 0, 18)
-		tmp = np.zeros((18,self.n_outputs))
-		tmp[1:15,constants.gff3_f2i['-CDS']] = 1
-		tmp[1:15,constants.gff3_f2i['-gene']] = 1
-		tmp[2:7,constants.gff3_f2i['-exon']] = 1
-		tmp[8:14,constants.gff3_f2i['-exon']] = 1
-		self.assertTrue(np.array_equal(res2, tmp))
+		GI = reader.gff3_interval(self.gff3, fa=self.fa, force=True)
+		for fetch_cmd in GI.fetch, GI._fetch_tree, GI._fetch_h5:
+			res1 = fetch_cmd('Chr1', 0, 15)
+			tmp = np.zeros((15, self.n_outputs), dtype=np.uint8)
+			tmp[2:10,constants.gff3_f2i['+CDS']] = 1
+			tmp[2:10,constants.gff3_f2i['+gene']] = 1
+			tmp[3:7,constants.gff3_f2i['+exon']] = 1
+			tmp[10:15,constants.gff3_f2i['-transposable_element']] = 1
+			tmp[10:15,len(constants.gff3_f2i)] = constants.te_order_f2i['ltr']
+			tmp[10:15,len(constants.gff3_f2i)+1] = constants.te_sufam_f2i['gypsy']
+			self.assertEqual(res1.shape, tmp.shape)
+			for i in range(15):
+				if not np.array_equal(res1[i], tmp[i]):
+					print("At index %i"%(i))
+					print("Code:",res1[i])
+					print("Test:",tmp[i])
+			self.assertTrue(np.array_equal(res1, tmp))
+			res2 = fetch_cmd('Chr2', 0, 18)
+			tmp = np.zeros((18,self.n_outputs))
+			tmp[1:15,constants.gff3_f2i['-CDS']] = 1
+			tmp[1:15,constants.gff3_f2i['-gene']] = 1
+			tmp[2:7,constants.gff3_f2i['-exon']] = 1
+			tmp[8:14,constants.gff3_f2i['-exon']] = 1
+			self.assertTrue(np.array_equal(res2, tmp))
 	def test_input_iter_gff3(self):
 		I = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		XYL = list(I.genome_iter())
