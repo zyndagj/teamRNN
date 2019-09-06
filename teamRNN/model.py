@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 06/19/2019
+# Last Modified: 09/05/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -83,7 +83,7 @@ class sleight_model:
 		self.bidirectional = bidirectional # each RNN layer is bidirectional
 		self.merge_mode = None if merge_mode == 'none' else merge_mode
 		self.stateful = stateful # Whether the batches are stateful
-		if self.stateful: assert(not self.bidirectional)
+		#if self.stateful: assert(not self.bidirectional)
 		# supported cell types
 		self.cell_options = {'rnn':SimpleRNN, 'lstm':CuDNNLSTM if self.gpu else LSTM}
 		# Additional layers
@@ -210,10 +210,10 @@ class sleight_model:
 			input_shape = (self.n_steps, self.n_inputs)
 			if self.bidirectional:
 				if self.stateful:
-					sys.exit("Should never get here")
-					#bis = (self.stateful, self.n_steps, self.n_inputs)
-					#return Bidirectional(self._gen_cell_layer(num+1), \
-					#	merge_mode=self.merge_mode, batch_input_shape=bis)
+					#sys.exit("Should never get here")
+					bis = (self.stateful, self.n_steps, self.n_inputs)
+					return Bidirectional(self._gen_cell_layer(num), \
+						merge_mode=self.merge_mode, batch_input_shape=bis)
 				return Bidirectional(self._gen_cell_layer(num+1), \
 					merge_mode=self.merge_mode, input_shape=input_shape)
 			else:
@@ -225,26 +225,38 @@ class sleight_model:
 				return self._gen_cell_layer(num, test)
 	def _gen_cell_layer(self, num=0, test=False):
 		cell_func = self.cell_options[self.cell_type]
-		if num == 0 and not self.bidirectional:
+		input_shape = (None, None)
+		if num == 0:
 			input_shape = (self.n_steps, self.n_inputs)
-			if self.stateful:
-				if test:
-					bis = (1, self.n_steps, self.n_inputs)
-				else:
-					bis = (self.stateful, self.n_steps, self.n_inputs)
+		if self.stateful and not self.bidirectional:
+			if test:
+				logger.debug("Setting testing batch size to 1")
+				bis = (1, self.n_steps, self.n_inputs)
+			else:
+				bis = (self.stateful, self.n_steps, self.n_inputs)
+			if not self.gpu:
+				return cell_func(self.n_neurons, return_sequences=True, \
+					kernel_regularizer=self._gen_reg('kernel'), \
+					bias_regularizer=self._gen_reg('bias'), \
+					activity_regularizer=self._gen_reg('activity'), \
+					stateful=bool(self.stateful), implementation=2, \
+					batch_input_shape=bis, dropout=self.dropout)
+			else:
 				return cell_func(self.n_neurons, return_sequences=True, \
 					kernel_regularizer=self._gen_reg('kernel'), \
 					bias_regularizer=self._gen_reg('bias'), \
 					activity_regularizer=self._gen_reg('activity'), \
 					stateful=bool(self.stateful), \
 					batch_input_shape=bis, dropout=self.dropout)
+		if not self.gpu:
 			return cell_func(self.n_neurons, return_sequences=True, input_shape=input_shape, \
 				kernel_regularizer=self._gen_reg('kernel'), \
 				bias_regularizer=self._gen_reg('bias'), \
 				activity_regularizer=self._gen_reg('activity'), \
+				implementation=2, \
 				stateful=bool(self.stateful), dropout=self.dropout)
 		else:
-			return cell_func(self.n_neurons, return_sequences=True, \
+			return cell_func(self.n_neurons, return_sequences=True, input_shape=input_shape, \
 				kernel_regularizer=self._gen_reg('kernel'), \
 				bias_regularizer=self._gen_reg('bias'), \
 				activity_regularizer=self._gen_reg('activity'), \
@@ -310,7 +322,7 @@ class sleight_model:
 		y_pred = self.model.predict_on_batch(x_batch)
 		total_time = time() - start_time
 		#logger.debug("Finished predict batch in %.1f seconds (%.1f sequences/second)"%(total_time, len(x_batch)/total_time))
-		if time:
+		if return_time:
 			return np.abs(y_pred.round(0)).astype(np.uint32), total_time
 		return np.abs(y_pred.round(0)).astype(np.uint32)
 

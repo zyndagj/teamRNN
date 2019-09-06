@@ -2,7 +2,7 @@
 #
 ###############################################################################
 # Author: Greg Zynda
-# Last Modified: 07/15/2019
+# Last Modified: 09/05/2019
 ###############################################################################
 # BSD 3-Clause License
 # 
@@ -96,6 +96,7 @@ def main():
 	parser_train.add_argument('-f', '--force', action='store_true', help='Overwrite a previously saved model')
 	parser_train.add_argument('--train', metavar="STR", help='Comma separated list of chromosomes to train on [all]', type=str)
 	parser_train.add_argument('--test', metavar="STR", help='Comma separated list of chromosomes to test on [none]', type=str)
+	parser_train.add_argument('--every', metavar="INT", help='Collect MSE values for the first training and test chromosomes every [5] epochs', type=int, default=5)
 	#
 	parser_train.set_defaults(target_function=train)
 	#parser_train.add_argument('-', '--', action='store_true', help='')
@@ -140,8 +141,8 @@ def _target_checker(targets, IS, default):
 		return default
 
 def train(args):
-	if args.bidirectional and args.stateful:
-		sys.exit("Cannot use stateful and bidirectional")
+	#if args.bidirectional and args.stateful:
+	#	sys.exit("Cannot use stateful and bidirectional")
 	logger.debug("Model will be trained on the given input")
 	# Attempt to load old parameters
 	if os.path.exists(args.config) and not args.force:
@@ -215,11 +216,11 @@ def train(args):
 		logger.info("Epoch-%04i - Finished training in %i seconds"%(E, int(time()-train_start)))
 		#### Calculate MSE #########################################
 		#if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
-		if (E+1)%4 == 0: # Every 5th epoch [4, 9, ...]
+		if (E+1)%cached_args.every == 0:
 			MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
 			test_start = time()
 			logger.debug("Epoch-%04i - Collecting Training MSE values"%(E))
-			for chrom in (train_chroms[0], test_chroms[0]):
+			for chrom in [train_chroms[0]]+([test_chroms[0]] if test_chroms else []):
 				chrom_time, start_time = time(), time()
 				if cached_args.stateful: M.model.reset_states()
 				for count, batch in enumerate(iter_func(chrom, \
@@ -238,9 +239,9 @@ def train(args):
 			logger.info("Epoch-%04i - Finished testing in %i seconds"%(E, int(time()-test_start)))
 			# Write output values
 			if train_chroms:
-				MI.write(hvd, train_chroms[0], 'TRAIN', E, 10000, 'mean', 'midpoint')
+				MI.write(hvd, [train_chroms[0]], 'TRAIN', E, 10000, 'mean', 'midpoint')
 			if test_chroms:
-				MI.write(hvd, test_chroms[0], 'TEST', E, 10000, 'mean', 'midpoint')
+				MI.write(hvd, [test_chroms[0]], 'TEST', E, 10000, 'mean', 'midpoint')
 			MI.close()
 		if not hvd or (hvd and args.hvd_rank == 0):
 			# Save between epochs
@@ -268,7 +269,11 @@ def classify(args):
 		logger.info("Loading model parameters from %s"%(args.config))
 	with open(args.config, 'rb') as CF:
 		cached_args = pickle.load(CF)
+	# Open the input
+	IS = reader.input_slicer(args.reference, args.methratio, quality=args.quality, ploidy=args.ploidy, stateful=bool(cached_args.stateful))
+	init_hvd(args)
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
+	model_batch = int(cached_args.batch_size/args.hvd_size) if hvd and cached_args.stateful else cached_args.batch_size
 	# Load model
 	M = model.sleight_model(args.name, \
 		n_inputs = 10, \
@@ -286,7 +291,7 @@ def classify(args):
 		l2 = cached_args.l2, \
 		bidirectional = cached_args.bidirectional, \
 		merge_mode = cached_args.merge, \
-		stateful = cached_args.batch_size if cached_args.stateful else False, \
+		stateful = model_batch if cached_args.stateful else False, \
 		hidden_list=hidden_list, \
 		save_dir=args.directory)
 	# See if there is a checkpoint to restore from
@@ -295,28 +300,36 @@ def classify(args):
 		sys.exit()
 	M.restore()
 	#print M.model.summary()
-	# Open the input
-	IS = reader.input_slicer(args.reference, args.methratio, quality=args.quality, ploidy=args.ploidy)
 	# Open the output
 	OA = writer.output_aggregator(args.reference)
 	# Classify the input
 	def non_zero(a):
 	        return ' '.join(["%i:%i"%(i,a[i]) for i in np.nonzero(a)[0]])
-	if cached_args.stateful:
-		for chrom in sorted(IS.FA.references):
-			M.model.reset_states()
-			for cb, xb in IS.stateful_chrom_iter(chrom, seq_len=cached_args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
-				y_pred_batch = M.predict(xb)
-				for c, x, yp in zip(cb, xb, y_pred_batch):
-					chrom,s,e = c
-					#for i in range(s,e): print (chrom,i), non_zero(yp[i-s])
-					OA.vote(*c, array=yp, overwrite=True)
-			M.model.reset_states()
-	else:
-		for cb, xb in IS.genome_iter(seq_len=cached_args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size):
-			y_pred_batch = M.predict(xb)
+	iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
+	#### Classify #################################################
+	train_start = time()
+	for chrom in sorted(IS.FA.references):
+		start_time = time()
+		if cached_args.stateful: M.model.reset_states()
+		for count, batch in enumerate(iter_func(chrom, seq_len=cached_args.sequence_length, \
+				offset=args.offset, batch_size=cached_args.batch_size, \
+				hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
+			cb, xb = batch
+			cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
+			#logger.debug("|cb| = %i  batch = %i  model = %i"%(len(cb), cached_args.batch_size, model_batch))
+			assert(len(cb) == model_batch)
+			y_pred_batch, predict_time = M.predict(xb, return_time=True)
+			logger.debug("PREDICT: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
 			for c, x, yp in zip(cb, xb, y_pred_batch):
-				OA.vote(*c, array=yp)
+				chrom,s,e = c
+				#for i in range(s,e): print (chrom,i), non_zero(yp[i-s])
+				if cached_args.stateful:
+					OA.vote(*c, array=yp, overwrite=True)
+				else:
+					OA.vote(*c, array=yp)
+			start_time = time()
+		if cached_args.stateful: M.model.reset_states()
+	#### Write #####################################################
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Features need %.2f of the votes to be output"%(args.threshold))
 		logger.info("Writing %s"%(args.output))
