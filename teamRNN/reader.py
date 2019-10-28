@@ -12,6 +12,7 @@ from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam
 from teamRNN.util import irange, iterdict
 from collections import defaultdict as dd
 import re, logging, os
+from time import time
 logger = logging.getLogger(__name__)
 try:
 	import cPickle as pickle
@@ -156,32 +157,45 @@ class input_slicer:
 			self.pool.join()
 #>C1 dna:chromosome chromosome:BOL:C1:1:43764888:1 REF
 	def _get_region(self, chrom, cur, chrom_len, chrom_quality, seq_len, print_region=False):
+		def log_time(st,et,c):
+			out_str = 'get (s) - '
+			out_str += ' '.join(['%s:%i'%(i,int(et[i]-st[i])) for i in c])
+			logger.debug(out_str)
+		time_categories = ('reference', 'methylation', 'transform', 'gff3')
+		#startTimes = {c:0 for c in time_categories}
+		#endTimes = {c:0 for c in time_categories}
 		if print_region: logger.debug("Fetching %s:%i-%i"%(chrom, cur, cur+seq_len))
 		#print "Fetching %s:%i-%i"%(chrom, cur, cur+seq_len)
 		coord = (chrom, cur, cur+seq_len)
+		#startTimes['reference'] = time()
 		seq = self.RC.fetch(chrom, cur, cur+seq_len)
+		#endTimes['reference'] = time()
 		# [[context_I, strand_I, c, ct, g, ga], ...]
+		#startTimes['methylation'] = time()
 		meth = self.M5.fetch(chrom, cur+1, cur+seq_len)
+		#endTimes['methylation'] = time()
 		assert(len(seq) == len(meth))
 		# Transform output
-		out_slice = []
-		for i in range(len(seq)):
-			# get base index
-			base = base2index[seq[i]]
-			# get location
-			frac = float(cur+1+i)/chrom_len
-			#out_row = [base, frac, CGr, nCG, CHGr, nCGH, CHHr, nCHH, Ploidy, Quality]
-			out_row = [base, frac, 0,0, 0,0, 0,0, self.ploidy, chrom_quality]
-			# get methylation info
-			cI, sI, c, ct, g, ga = meth[i]
-			if cI != -1:
-				meth_index = 2+cI*2
-				out_row[meth_index:meth_index+2] = [float(c)/ct, ct]
-			out_slice.append(out_row)
+		out_slice = np.zeros((len(seq), 10), dtype=np.float32)
+		#startTimes['transform'] = time()
+		out_slice[:,0] = [base2index[b] for b in seq]
+		out_slice[:,1] = np.arange(cur+1,cur+len(seq)+1)/float(chrom_len)
+		out_slice[:,8] = self.ploidy
+		out_slice[:,9] = chrom_quality
+		### Methylation
+		not_n1 = meth[:,0] != -1
+		new_index = meth[not_n1, 0]*2+2
+		out_slice[not_n1, new_index] = np.true_divide(meth[not_n1, 2], meth[not_n1, 3])
+		out_slice[not_n1, new_index+1] = meth[not_n1, 3]
+		#endTimes['transform'] = time()
 		if self.gff3_file:
+			#startTimes['gff3'] = time()
 			y_array = self.GI.fetch(chrom, cur, cur+seq_len)
+			#endTimes['gff3'] = time()
+			#log_time(startTimes, endTimes, time_categories)
 			return (coord, out_slice, y_array)
 		else:
+			#log_time(startTimes, endTimes, time_categories)
 			return (coord, out_slice)
 	def chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1):
 		if hvd_size > 1:

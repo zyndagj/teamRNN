@@ -64,6 +64,9 @@ bases = 'ACGTURYKMSWBDHVN-'
 base2index = {b:i for i,b in enumerate(bases)}
 index2base = bases
 
+# Process configuration
+tacc_nodes = {'knl':(136,2), 'skx':(48,2), 'hikari':(24,2)}
+
 #def main():
 #
 #if __name__ == "__main__":

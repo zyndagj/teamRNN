@@ -176,8 +176,8 @@ class TestReader(unittest.TestCase):
 		IL = list(I.genome_iter())
 		#for c, x in IL:
 		#	print(''.join(map(lambda i: constants.index2base[i[0]], x)))
-		self.assertTrue(np.all(IL[0][1][0][0] == [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
-		self.assertTrue(np.all(IL[9][1][0][0] == [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
+		self.assertTrue(np.allclose(IL[0][1][0][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.allclose(IL[9][1][0][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
 		self.assertEqual(len(IL), 16+16)
 	def test_input_iter_10(self):
 		I = reader.input_slicer(self.fa, self.mr1)
@@ -226,8 +226,8 @@ class TestReader(unittest.TestCase):
 		I = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		XYL = list(I.genome_iter())
 		self.assertEqual(len(XYL), (20-5+1)*2)
-		self.assertTrue(np.all(XYL[0][1][0][0] == [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
-		self.assertTrue(np.all(XYL[9][1][0][0] == [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
+		self.assertTrue(np.allclose(XYL[0][1][0][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.allclose(XYL[9][1][0][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
 		self.assertTrue(XYL[9][2][0][0][constants.gff3_f2i['+CDS']], 1)
 		for i in range(10, 15):
 			self.assertEqual(XYL[i][2][0][0][constants.gff3_f2i['-transposable_element']], 1)
@@ -565,6 +565,55 @@ class TestReader(unittest.TestCase):
 					self.assertEqual(ols, fls)
 		if os.path.exists(M.save_dir):
 			rmtree(M.save_dir)
+	def test_bi_stateful(self):
+		if not self.test_model: return
+		seq_len, batch_size = 20, 1
+		# create models
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=48, \
+			learning_rate=0.01, bidirectional=True, save_dir='test_model', \
+			cell_type='lstm', stateful=batch_size)
+		# train models
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3, stateful=True)
+		for epoch in range(1,100+1):
+			for chrom in sorted(IS.FA.references):
+				M.model.reset_states()
+				for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len=seq_len, offset=1, batch_size=batch_size):
+					mse,acc,time = M.train(xb,yb)
+				M.model.reset_states()
+		M.save()
+		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
+		# Vote
+		OA = writer.output_aggregator(self.fa)
+		for chrom in sorted(IS.FA.references):
+			M.model.reset_states()
+			batch_index = 0
+			for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len=seq_len, offset=1, batch_size=batch_size):
+				#print cb
+				y_pred_batch = M.predict(xb)
+				#for fi in range(self.n_outputs):
+				#	fn = constants.gff3_i2f[fi] if fi < len(constants.gff3_i2f) else "TE_O_SUFAM"
+				#	for bi in range(batch_size):
+				#		yv = yb[bi,:,fi]
+				#		ypv = y_pred_batch[bi,:,fi]
+				#		if np.any(yv != ypv):
+				#			cc, cs, ce = cb[bi]
+				#			print "%s:%02i-%02i %25s %s %s"%(cc, cs, ce, fn, yv, ypv)
+				for c, x, y, yp in zip(cb, xb, yb, y_pred_batch):
+					OA.vote(*c, array=yp, overwrite=True)
+				batch_index += 1
+			M.model.reset_states()
+		# Compare
+		out_lines = OA.write_gff3()
+		#for ol in out_lines: print ol
+		with open(self.gff3,'r') as GFF3:
+			for ol, fl in zip(out_lines, GFF3.readlines()):
+				if ol[0] != '#':
+					ols = ol.split('\t')[:9]
+					ols[1] = 'test'
+					fls = fl.rstrip('\n').split('\t')[:9]
+					self.assertEqual(ols, fls)
+		if os.path.exists(M.save_dir):
+			rmtree(M.save_dir)
 	def test_train_stateful_01(self):
 		def a2s(a):
 			return '['+', '.join(map(lambda x: '%.2f'%(x), a))+']'
@@ -573,12 +622,12 @@ class TestReader(unittest.TestCase):
 		if not self.test_model: return
 		seq_len, batch_size = 4, 4
 		# create models
-		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=80, \
 			learning_rate=0.01, bidirectional=False, save_dir='test_model', \
 			cell_type='lstm', stateful=batch_size)
 		# train models
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3, stateful=True)
-		for epoch in range(1,50+1):
+		for epoch in range(1,100+1):
 			M.model.reset_states()
 			for chrom in sorted(IS.FA.references):
 				for cb, xb, yb in IS.stateful_chrom_iter(chrom, seq_len, 1, batch_size):
@@ -617,7 +666,7 @@ class TestReader(unittest.TestCase):
 		seq_len, batch_size = 4,4
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3, stateful=True)
 		# create models
-		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=136, \
+		M = model.sleight_model('default', self.n_inputs, seq_len, self.n_outputs, n_neurons=80, \
 			learning_rate=0.01, bidirectional=False, save_dir='test_model', \
 			cell_type='lstm', stateful=batch_size)
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
