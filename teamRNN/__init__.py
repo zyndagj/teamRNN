@@ -43,9 +43,10 @@ if node_name in tacc_nodes:
         intra, inter = tacc_nodes[node_name]
         #logger.debug("Using config for TACC %s node (%i, %i)"%(node_name, intra, inter))
         os.environ['KMP_BLOCKTIME'] = '0'
+	os.environ['TF_DISABLE_MKL'] = '1'
         os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
         os.environ['OMP_NUM_THREADS'] = str(intra)
-os.environ['TF_XLA_FLAGS'] = '--tf_xla_auto_jit=2 --tf_xla_cpu_global_jit'
+#os.environ['TF_XLA_FLAGS'] = '--tf_xla_auto_jit=2 --tf_xla_cpu_global_jit'
 from glob import glob
 from time import time
 import pickle
