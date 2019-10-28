@@ -176,8 +176,8 @@ class TestReader(unittest.TestCase):
 		IL = list(I.genome_iter())
 		#for c, x in IL:
 		#	print(''.join(map(lambda i: constants.index2base[i[0]], x)))
-		self.assertTrue(np.all(IL[0][1][0][0] == [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
-		self.assertTrue(np.all(IL[9][1][0][0] == [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
+		self.assertTrue(np.allclose(IL[0][1][0][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.allclose(IL[9][1][0][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
 		self.assertEqual(len(IL), 16+16)
 	def test_input_iter_10(self):
 		I = reader.input_slicer(self.fa, self.mr1)
@@ -226,8 +226,8 @@ class TestReader(unittest.TestCase):
 		I = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		XYL = list(I.genome_iter())
 		self.assertEqual(len(XYL), (20-5+1)*2)
-		self.assertTrue(np.all(XYL[0][1][0][0] == [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
-		self.assertTrue(np.all(XYL[9][1][0][0] == [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
+		self.assertTrue(np.allclose(XYL[0][1][0][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.allclose(XYL[9][1][0][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
 		self.assertTrue(XYL[9][2][0][0][constants.gff3_f2i['+CDS']], 1)
 		for i in range(10, 15):
 			self.assertEqual(XYL[i][2][0][0][constants.gff3_f2i['-transposable_element']], 1)

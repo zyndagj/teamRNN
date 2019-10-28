@@ -36,6 +36,16 @@
 ###############################################################################
 
 import sys, os, argparse
+from teamRNN.constants import tacc_nodes
+node_name = os.getenv('TACC_NODE_TYPE', False)
+if not node_name: node_name = os.getenv('TACC_SYSTEM', False)
+if node_name in tacc_nodes:
+        intra, inter = tacc_nodes[node_name]
+        #logger.debug("Using config for TACC %s node (%i, %i)"%(node_name, intra, inter))
+        os.environ['KMP_BLOCKTIME'] = '0'
+        os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
+        os.environ['OMP_NUM_THREADS'] = str(intra)
+os.environ['TF_XLA_FLAGS'] = '--tf_xla_auto_jit=2 --tf_xla_cpu_global_jit'
 from glob import glob
 from time import time
 import pickle
@@ -81,8 +91,8 @@ def main():
 	parser_train.add_argument('-l', '--layers', metavar="INT", help='Number of layers of RNN/LSTM cells [%(default)s]', default=1, type=int)
 	parser_train.add_argument('-r','--learning_rate', metavar="FLOAT", help='Learning rate of the optimizer [%(default)s]', default=0.001, type=float)
 	parser_train.add_argument('-d', '--dropout', metavar="FLOAT", help='Dropout rate of the model [%(default)s]', default=0, type=float)
-	cell_types = ('lstm', 'rnn')
-	parser_train.add_argument('-C', '--cell_type', metavar="STR", help='The recurrent cell type of the model ([lstm], rnn)', default='lstm', type=_argChecker(cell_types, 'cell type').check)
+	cell_types = ('lstm', 'rnn', 'gru')
+	parser_train.add_argument('-C', '--cell_type', metavar="STR", help='The recurrent cell type of the model ([lstm], rnn, gru)', default='lstm', type=_argChecker(cell_types, 'cell type').check)
 	parser_train.add_argument('-b', '--bidirectional', action='store_true', help='Reccurent layers are bidirectional')
 	merge_modes = ('sum', 'mul', 'concat', 'ave', 'none')
 	parser_train.add_argument('-m', '--merge', metavar="STR", help='Bidirectional layer merge modes ([concat], sum, mul, ave, none)', default='concat', type=_argChecker(merge_modes, 'cell type').check)
@@ -216,6 +226,7 @@ def train(args):
 		logger.info("Epoch-%04i - Finished training in %i seconds"%(E, int(time()-train_start)))
 		#### Calculate MSE #########################################
 		#if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
+		#if (E+1)%1 == 0:
 		if (E+1)%cached_args.every == 0:
 			MI = writer.MSE_interval(args.reference, args.directory, args.hvd_rank)
 			test_start = time()
@@ -243,9 +254,10 @@ def train(args):
 			if test_chroms:
 				MI.write(hvd, [test_chroms[0]], 'TEST', E, 10000, 'mean', 'midpoint')
 			MI.close()
+			del MI
 		if not hvd or (hvd and args.hvd_rank == 0):
 			# Save between epochs
-			if (E+1)%5 == 0: # Every 5th epoch [4, 9, ...]
+			if (E+1)%cached_args.every == 0:
 				M.save(epoch=E)
 			else:
 				M.save()

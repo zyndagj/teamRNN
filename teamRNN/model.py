@@ -38,6 +38,7 @@
 #!pip install hmmlearn &> /dev/null
 import numpy as np
 import os, psutil, random
+from teamRNN.constants import tacc_nodes
 #from hmmlearn import hmm
 os.putenv('TF_CPP_MIN_LOG_LEVEL','3')
 import tensorflow as tf
@@ -46,7 +47,7 @@ from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.client import device_lib
 from tensorflow.keras.backend import set_session, clear_session
 from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed
+from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed, GRU, CuDNNGRU
 from tensorflow.keras.regularizers import l1, l2, l1_l2
 from tensorflow.keras.optimizers import RMSprop, Adam, SGD
 try:
@@ -85,7 +86,9 @@ class sleight_model:
 		self.stateful = stateful # Whether the batches are stateful
 		#if self.stateful: assert(not self.bidirectional)
 		# supported cell types
-		self.cell_options = {'rnn':SimpleRNN, 'lstm':CuDNNLSTM if self.gpu else LSTM}
+		self.cell_options = {'rnn':SimpleRNN, \
+			'lstm':CuDNNLSTM if self.gpu else LSTM, \
+			'gru':CuDNNGRU if self.gpu else GRU}
 		# Additional layers
 		self.hidden_list = hidden_list # List of hidden layer sizes
 		# Holder variable for stateful model test
@@ -111,16 +114,12 @@ class sleight_model:
 		######################################
 		# Configure the session
 		######################################
-		tacc_nodes = {'knl':(136,2), 'skx':(48,2), 'hikari':(24,2)}
+		#tacc_nodes = {'knl':(136,2), 'skx':(48,2), 'hikari':(24,2)}
 		node_name = os.getenv('TACC_NODE_TYPE', False)
 		if not node_name: node_name = os.getenv('TACC_SYSTEM', False)
 		if node_name in tacc_nodes:
 			intra, inter = tacc_nodes[node_name]
 			logger.debug("Using config for TACC %s node (%i, %i)"%(node_name, intra, inter))
-			os.putenv('KMP_BLOCKTIME', '0')
-			os.putenv('TF_DISABLE_MKL', '1')
-			os.putenv('KMP_AFFINITY', 'granularity=fine,noverbose,compact,1,0')
-			os.putenv('OMP_NUM_THREADS', str(intra))
 			config = tf.ConfigProto(intra_op_parallelism_threads=intra, \
 					inter_op_parallelism_threads=inter, \
 					log_device_placement=False, allow_soft_placement=True)
@@ -161,7 +160,8 @@ class sleight_model:
 			logger.debug("Appending %s TimeDistributed hidden layers"%(str(self.hidden_list)))
 		for hidden_neurons in self.hidden_list:
 			if hidden_neurons > 0:
-				model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
+				#model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
+				model.add(TimeDistributed(Dense(hidden_neurons, activation='tanh')))
 		# Final
 		model.add(TimeDistributed(Dense(self.n_outputs, activation='linear')))
 		return model
@@ -188,7 +188,7 @@ class sleight_model:
 		out_name += "_stateful%s"%(str(self.stateful) if self.stateful else 'F')
 		out_name += "_learn%s_drop%s"%(str(self.learning_rate), str(self.dropout))
 		if (self.reg_kernel or self.reg_bias or self.reg_activity) and (self.l1 or self.l2):
-			reg_str = "reg"
+			reg_str = "_reg"
 			reg_str += 'K' if self.reg_kernel else ''
 			reg_str += 'B' if self.reg_bias else ''
 			reg_str += 'A' if self.reg_activity else ''
