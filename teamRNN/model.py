@@ -37,15 +37,16 @@
 
 #!pip install hmmlearn &> /dev/null
 import numpy as np
-import os, psutil, random
+import os, random
+#import psutil
 from teamRNN.constants import tacc_nodes
 #from hmmlearn import hmm
-os.putenv('TF_CPP_MIN_LOG_LEVEL','3')
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 tf.logging.set_verbosity(tf.logging.ERROR)
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.client import device_lib
-from tensorflow.keras.backend import set_session, clear_session
+from tensorflow.keras.backend import set_session, clear_session, set_floatx, set_epsilon
 from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed, GRU, CuDNNGRU
 from tensorflow.keras.regularizers import l1, l2, l1_l2
@@ -155,6 +156,9 @@ class sleight_model:
 		for i in range(self.n_layers):
 			model.add(self._gen_rnn_layer(i, test))
 			# Dropout is added at the cell level
+			if self.dropout and self.gpu:
+				logger.debug("Adding dropout layer")
+				model.add(Dropout(self.dropout))
 		# Handel hidden layers
 		if self.hidden_list and self.hidden_list[0] > 0:
 			logger.debug("Appending %s TimeDistributed hidden layers"%(str(self.hidden_list)))
@@ -179,6 +183,7 @@ class sleight_model:
 			self.callbacks = [hvd.callbacks.BroadcastGlobalVariablesCallback(0)]
 		# compile
 		model.compile(loss=loss_functions[loss_func], optimizer=opt, metrics=['accuracy'])
+		model.summary()
 	def _gen_name(self):
 		out_name = "%s_s%ix%i_o%i"%(self.name, self.n_steps, self.n_inputs, self.n_outputs)
 		cell_prefix = 'bi' if self.bidirectional else ''
@@ -247,7 +252,7 @@ class sleight_model:
 					bias_regularizer=self._gen_reg('bias'), \
 					activity_regularizer=self._gen_reg('activity'), \
 					stateful=bool(self.stateful), \
-					batch_input_shape=bis, dropout=self.dropout)
+					batch_input_shape=bis)
 		if not self.gpu:
 			return cell_func(self.n_neurons, return_sequences=True, input_shape=input_shape, \
 				kernel_regularizer=self._gen_reg('kernel'), \
@@ -260,7 +265,7 @@ class sleight_model:
 				kernel_regularizer=self._gen_reg('kernel'), \
 				bias_regularizer=self._gen_reg('bias'), \
 				activity_regularizer=self._gen_reg('activity'), \
-				stateful=bool(self.stateful), dropout=self.dropout)
+				stateful=bool(self.stateful))
 	def _gen_reg(self, name):
 		if name == 'kernel' and self.reg_kernel:
 			return self._gen_l1_l2()
@@ -326,9 +331,9 @@ class sleight_model:
 			return np.abs(y_pred.round(0)).astype(np.uint32), total_time
 		return np.abs(y_pred.round(0)).astype(np.uint32)
 
-def mem_usage():
-	process = psutil.Process(os.getpid())
-	return process.memory_info().rss/1000000
+#def mem_usage():
+#	process = psutil.Process(os.getpid())
+#	return process.memory_info().rss/1000000
 
 if __name__ == "__main__":
 	main()

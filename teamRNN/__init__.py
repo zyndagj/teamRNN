@@ -35,7 +35,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
 
-import sys, os, argparse
+import sys, os, argparse, logging
+FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
+logging.basicConfig(level=logging.INFO, format=FORMAT)
+logger = logging.getLogger(__name__)
 from teamRNN.constants import tacc_nodes
 node_name = os.getenv('TACC_NODE_TYPE', False)
 if not node_name: node_name = os.getenv('TACC_SYSTEM', False)
@@ -46,19 +49,18 @@ if node_name in tacc_nodes:
 	os.environ['TF_DISABLE_MKL'] = '1'
         os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
         os.environ['OMP_NUM_THREADS'] = str(intra)
+#os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1' # Little to no effect
+#os.environ['TF_XLA_FLAGS'] = '--tf_xla_auto_jit=2' # Little to no effect
 #os.environ['TF_XLA_FLAGS'] = '--tf_xla_auto_jit=2 --tf_xla_cpu_global_jit'
 from glob import glob
 from time import time
 import pickle
-import logging
 try:
 	import horovod.tensorflow.keras as hvd
 	#hvd.init() # Can't init until after mp forking
 except:
 	hvd = False
-FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)s] %(message)s"
 import tensorflow as tf
-logger = logging.getLogger(__name__)
 from teamRNN import reader, constants, writer, model
 from teamRNN.util import irange, fivenum
 from pysam import FastaFile
@@ -131,9 +133,9 @@ def main():
 	# Configure logging
 	################################
 	if args.verbose:
-		logging.basicConfig(level=logging.DEBUG, format=FORMAT)
+		logger.setLevel(logging.DEBUG)
 	else:
-		logging.basicConfig(level=logging.INFO, format=FORMAT)
+		logger.setLevel(logging.INFO)
 	if args.verbose: logger.debug("DEBUG logging enabled")
 	##############################################
 	# RUN target function
@@ -361,10 +363,11 @@ def init_hvd(args):
 		# Remove all handlers associated with the root logger object.
 		for handler in logging.root.handlers[:]:
 			logging.root.removeHandler(handler)
+		logging.basicConfig(level=logging.INFO, format=FORMAT)
 		if args.verbose:
-			logging.basicConfig(level=logging.DEBUG, format=FORMAT)
+			logger.setLevel(logging.DEBUG)
 		else:
-			logging.basicConfig(level=logging.INFO, format=FORMAT)
+			logger.setLevel(logging.INFO)
 		logger.debug("Updated logger to print process")
 	args.hvd_rank = hvd.rank() if hvd else 0
 	args.hvd_size = hvd.size() if hvd else 1
