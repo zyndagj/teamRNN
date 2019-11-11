@@ -106,6 +106,7 @@ class sleight_model:
 		######################################
 		# Set the RNG seeds
 		######################################
+		#if not self.gpu:
 		clear_session()
 		tf.reset_default_graph()
 		np.random.seed(42)
@@ -133,11 +134,15 @@ class sleight_model:
 			config = tf.ConfigProto()
 			logger.debug("Allowing memory growth on GPU")
 			config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
+			if hvd:
+				logger.debug("Pinning to GPU:%i"%(hvd.local_rank()))
+				config.gpu_options.visible_device_list = str(hvd.local_rank())
 			#config.log_device_placement = True  # to log device placement (on which device the operation ran)
 		else:
 			config = tf.ConfigProto()
 			logger.debug("Using default config")
 		sess = tf.Session(graph=tf.get_default_graph(), config=config)
+		#sess = tf.Session(config=config)
 		set_session(sess)  # set this TensorFlow session as the default session for Keras
 		######################################
 		# Build graph
@@ -176,14 +181,16 @@ class sleight_model:
 				#'scc':'sparse_categorical_crossentropy'} - wants a single output
 		opt_functions = {'adam':Adam, 'sgd':SGD, 'rms':RMSprop}
 		logger.debug("Using the %s optimizer with a learning rate of %s and the %s loss function"%(opt_func, str(self.learning_rate), loss_func))
-		opt = opt_functions[opt_func](lr=self.learning_rate)
 		if hvd:
+			opt = opt_functions[opt_func](lr=self.learning_rate*hvd.size())
 			if hvd.rank() == 0: logger.debug("Compiling distributed optimizer")
 			opt = hvd.DistributedOptimizer(opt)
 			self.callbacks = [hvd.callbacks.BroadcastGlobalVariablesCallback(0)]
+		else:
+			opt = opt_functions[opt_func](lr=self.learning_rate)
 		# compile
 		model.compile(loss=loss_functions[loss_func], optimizer=opt, metrics=['accuracy'])
-		model.summary()
+		#model.summary()
 	def _gen_name(self):
 		out_name = "%s_s%ix%i_o%i"%(self.name, self.n_steps, self.n_inputs, self.n_outputs)
 		cell_prefix = 'bi' if self.bidirectional else ''
@@ -285,7 +292,9 @@ class sleight_model:
 		else:
 			return None
 	def _detect_gpu(self):
-		return "GPU" in [d.device_type for d in device_lib.list_local_devices()]
+		logger.warn("Forcing GPU")
+		return True
+		#return "GPU" in [d.device_type for d in device_lib.list_local_devices()]
 	def save(self, epoch=False):
 		if not hvd or hvd.rank() == 0:
 			if not os.path.exists(self.save_dir):
@@ -314,7 +323,8 @@ class sleight_model:
 		self.model.load_weights(self.save_file)
 		logger.debug("Restored model from %s"%(self.save_file))
 	def __del__(self):
-		clear_session()
+		if not hvd:
+			clear_session()
 	def train(self, x_batch, y_batch):
 		# TODO add horovod code
 		start_time = time()

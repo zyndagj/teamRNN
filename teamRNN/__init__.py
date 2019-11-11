@@ -60,7 +60,6 @@ try:
 	#hvd.init() # Can't init until after mp forking
 except:
 	hvd = False
-import tensorflow as tf
 from teamRNN import reader, constants, writer, model
 from teamRNN.util import irange, fivenum
 from pysam import FastaFile
@@ -335,6 +334,7 @@ def classify(args):
 			assert(len(cb) == model_batch)
 			y_pred_batch, predict_time = M.predict(xb, return_time=True)
 			logger.debug("PREDICT: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
+			if not y_pred_batch.sum(): logger.warn("No predictions in this batch")
 			for c, x, yp in zip(cb, xb, y_pred_batch):
 				chrom,s,e = c
 				#for i in range(s,e): print (chrom,i), non_zero(yp[i-s])

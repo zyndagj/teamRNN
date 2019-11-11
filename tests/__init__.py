@@ -32,7 +32,7 @@ class TestReader(unittest.TestCase):
 		self.seq_len = 15
 		self.n_outputs = len(constants.gff3_f2i)+2
 		self.test_model = True
-		self.n_epoch = 100
+		self.n_epoch = 200
 		self.learning_rate = 0.01
 	def tearDown(self):
 		## Runs after every test function ##
@@ -40,6 +40,17 @@ class TestReader(unittest.TestCase):
 		logStream.truncate(0)
 		if os.path.exists('mse_tmp'): rmtree('mse_tmp')
 		## Runs after every test function ##
+	def _compare_against_file(self, out_lines, in_file):
+		self.assertTrue(os.path.exists(in_file))
+		with open(in_file,'r') as GFF3:
+			input_lines = GFF3.readlines()
+		self.assertEqual(len(input_lines), len(out_lines))
+		for ol, fl in zip(out_lines, input_lines):
+			if ol[0] != '#':
+				ols = ol.split('\t')[:9]
+				ols[1] = 'test'
+				fls = fl.rstrip('\n').split('\t')[:9]
+				self.assertEqual(ols, fls)
 	def test_refcache(self):
 		RC = reader.refcache(self.fa)
 		FA = FastaFile(self.fa)
@@ -370,14 +381,7 @@ class TestReader(unittest.TestCase):
 			for i in range(len(c)):
 				OA.vote(*c[0], array=y[0])
 		out_lines = OA.write_gff3()
-		with open(self.gff3,'r') as GFF3:
-			for ol, fl in zip(out_lines, GFF3.readlines()):
-				if ol[0] != '#':
-					ols = ol.split('\t')[:9]
-					ols[1] = 'test'
-					fls = fl.rstrip('\n').split('\t')[:9]
-					self.assertEqual(ols, fls)
-		#print('\n'.join(OA.write_gff3()))
+		self._compare_against_file(out_lines, self.gff3)
 	def test_batch_new(self):
 		IS = reader.input_slicer(self.fa, self.mr1)
 		BL = list(IS.genome_iter(seq_len=5, batch_size=4))
@@ -525,13 +529,7 @@ class TestReader(unittest.TestCase):
 			OA.vote(*c[0], array=y_pred)
 		# Compare
 		out_lines = OA.write_gff3()
-		with open(self.gff3,'r') as GFF3:
-			for ol, fl in zip(out_lines, GFF3.readlines()):
-				if ol[0] != '#':
-					ols = ol.split('\t')[:9]
-					ols[1] = 'test'
-					fls = fl.rstrip('\n').split('\t')[:9]
-					self.assertEqual(ols, fls)
+		self._compare_against_file(out_lines, self.gff3)
 	def test_train_02_restore(self):
 		if not self.test_model: return
 		batch_size = 20-self.seq_len+1
@@ -556,13 +554,7 @@ class TestReader(unittest.TestCase):
 			OA.vote(*c[0], array=y_pred)
 		# Compare
 		out_lines = OA.write_gff3()
-		with open(self.gff3,'r') as GFF3:
-			for ol, fl in zip(out_lines, GFF3.readlines()):
-				if ol[0] != '#':
-					ols = ol.split('\t')[:9]
-					ols[1] = 'test'
-					fls = fl.rstrip('\n').split('\t')[:9]
-					self.assertEqual(ols, fls)
+		self._compare_against_file(out_lines, self.gff3)
 		if os.path.exists(M.save_dir):
 			rmtree(M.save_dir)
 	def test_bi_stateful(self):
@@ -604,14 +596,7 @@ class TestReader(unittest.TestCase):
 			M.model.reset_states()
 		# Compare
 		out_lines = OA.write_gff3()
-		#for ol in out_lines: print ol
-		with open(self.gff3,'r') as GFF3:
-			for ol, fl in zip(out_lines, GFF3.readlines()):
-				if ol[0] != '#':
-					ols = ol.split('\t')[:9]
-					ols[1] = 'test'
-					fls = fl.rstrip('\n').split('\t')[:9]
-					self.assertEqual(ols, fls)
+		self._compare_against_file(out_lines, self.gff3)
 		if os.path.exists(M.save_dir):
 			rmtree(M.save_dir)
 	def test_train_stateful_01(self):
@@ -654,13 +639,7 @@ class TestReader(unittest.TestCase):
 					OA.vote(*c, array=yp, overwrite=True)
 		# Compare
 		out_lines = OA.write_gff3()
-		with open(self.gff3,'r') as GFF3:
-			for ol, fl in zip(out_lines, GFF3.readlines()):
-				if ol[0] != '#':
-					ols = ol.split('\t')[:9]
-					ols[1] = 'test'
-					fls = fl.rstrip('\n').split('\t')[:9]
-					self.assertEqual(ols, fls)
+		self._compare_against_file(out_lines, self.gff3)
 	def test_train_stateful_02(self):
 		if not self.test_model: return
 		seq_len, batch_size = 4,4
@@ -687,13 +666,7 @@ class TestReader(unittest.TestCase):
 					OA.vote(*c, array=yp, overwrite=True)
 		# Compare
 		out_lines = OA.write_gff3()
-		with open(self.gff3,'r') as GFF3:
-			for ol, fl in zip(out_lines, GFF3.readlines()):
-				if ol[0] != '#':
-					ols = ol.split('\t')[:9]
-					ols[1] = 'test'
-					fls = fl.rstrip('\n').split('\t')[:9]
-					self.assertEqual(ols, fls)
+		self._compare_against_file(out_lines, self.gff3)
 		if os.path.exists(M.save_dir):
 			rmtree(M.save_dir)
 	def test_train_cli_01(self):

@@ -38,6 +38,7 @@
 from operator import itemgetter
 from pysam import FastaFile
 import h5py, os, sys, logging
+from time import time
 logger = logging.getLogger(__name__)
 import numpy as np
 from teamRNN.util import irange, iterdict, fivenum
@@ -71,33 +72,50 @@ class output_aggregator:
 	def close(self):
 		self.__del__()
 	def _load_arrays(self, chrom):
-		self.feature_vote_array = self.H5[chrom+'/votes/features']
-		self.feature_total_array = self.H5[chrom+'/totals/features']
-		self.te_order_array = self.H5[chrom+'/votes/tes/order']
-		self.te_sufam_array = self.H5[chrom+'/votes/tes/sufam']
+		s_time = time()
+		if chrom == self.cur_chrom:
+			return
+		self.feature_vote_array = self._swap_dset(self.cur_chrom, chrom, \
+			'/votes/features', self.feature_vote_array)
+		self.feature_total_array = self._swap_dset(self.cur_chrom, chrom, \
+			'/totals/features', self.feature_total_array)
+		self.te_order_array = self._swap_dset(self.cur_chrom, chrom, \
+			'/votes/tes/order', self.te_order_array)
+		self.te_sufam_array = self._swap_dset(self.cur_chrom, chrom, \
+			'/votes/tes/sufam', self.te_sufam_array)
 		#self.te_total_array = self.H5[chrom+'/totals/tes']
+		logger.debug("Took %i seconds to swap from %s to %s"%(int(time()-s_time), self.cur_chrom, chrom))
 		self.cur_chrom = chrom
-		self.te_feature_ids = set([gff3_f2i[s+f] for f in te_feature_names for s in '+-'])
+	def _swap_dset(self, old_c, new_c, suffix, old_a):
+		old_name = old_c+suffix
+		new_name = new_c+suffix
+		assert(old_a.shape == self.H5[old_name].shape)
+		self.H5[old_name].write_direct(old_a)
+		new_a = np.zeros(self.H5[new_name].shape, dtype=self.H5[new_name].dtype)
+		self.H5[new_name].read_direct(new_a)
+		return new_a
+	def _create_dset(self, size_tuple, name, dtype=np.uint32):
+		self.H5.create_dataset(name, size_tuple, compression='gzip', compression_opts=6, \
+			chunks=True, fillvalue=0, dtype=dtype)
+		return np.zeros(size_tuple, dtype=dtype)
 	def _genome_init(self):
 		n_features = len(gff3_i2f)
 		n_order_ids = len(te_order_i2f)
 		n_sufam_ids = len(te_sufam_i2f)
 		for chrom, chrom_len in iterdict(self.chrom_dict):
 			# total != sum
-			self.feature_vote_array = self.H5.create_dataset(chrom+'/votes/features', \
-				(chrom_len, n_features), compression='gzip', \
-				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
-			self.feature_total_array = self.H5.create_dataset(chrom+'/totals/features', \
-				(chrom_len, 1), compression='gzip', \
-				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
+			self.feature_vote_array = self._create_dset((chrom_len, n_features), \
+				chrom+'/votes/features')
+			self.feature_total_array = self._create_dset((chrom_len, 1), \
+				chrom+'/totals/features')
 			# These do not need a total array since there is only a single value per location
-			self.te_order_array = self.H5.create_dataset(chrom+'/votes/tes/order', \
-				(chrom_len, n_order_ids), compression='gzip', \
-				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
-			self.te_sufam_array = self.H5.create_dataset(chrom+'/votes/tes/sufam', \
-				(chrom_len, n_sufam_ids), compression='gzip', \
-				compression_opts=6, chunks=True, fillvalue=0, dtype=np.uint32)
+			self.te_order_array = self._create_dset((chrom_len, n_order_ids), \
+				chrom+'/votes/tes/order')
+			self.te_sufam_array = self._create_dset((chrom_len, n_sufam_ids), \
+				chrom+'/votes/tes/sufam')
 		self.cur_chrom = chrom
+		# Init this
+		self.te_feature_ids = set([gff3_f2i[s+f] for f in te_feature_names for s in '+-'])
 		# Create counters
 		self.features_tp = np.zeros(n_features)
 		self.features_fn = np.zeros(n_features)
@@ -199,11 +217,16 @@ class output_aggregator:
 	def write_gff3(self, out_file='', threshold=0.5):
 		total_feature_count = 0
 		out_gff3 = ['##gff-version   3']
+		if os.path.exists(out_file):
+			logger.info("Overwriting old %s"%(out_file))
+			os.remove(out_file)
 		for chrom in sorted(self.chrom_dict.keys()):
 			chrom_len = self.chrom_dict[chrom]
 			features = []
 			se_array = [[0,0] for i in irange(len(gff3_i2f))]
 			self._load_arrays(chrom)
+			logger.debug("Feature vote row sums: %s"%(str(list(self.feature_vote_array.sum(axis=0)))))
+			logger.debug("Feature total row sums: %s"%(str(list(self.feature_total_array.sum(axis=0)))))
 			for index in irange(chrom_len):
 				index_votes = self.feature_vote_array[index]
 				index_totals = self.feature_total_array[index]
@@ -237,6 +260,7 @@ class output_aggregator:
 					feature_str += ';Order=%s;Superfamily=%s'%(te_order, te_sufam)
 				out_gff3.append(feature_str)
 				total_feature_count += 1
+			logger.info("Finished writing %s"%(chrom))
 		if out_file:
 			with open(out_file,'w') as OF:
 				OF.write('\n'.join(out_gff3)+'\n')
@@ -384,6 +408,27 @@ class MSE_interval:
 			out_file = os.path.join(self.out_dir, '%s_e%i_%s.tsv'%(name.lower(), epoch, chrom))
 			np.savetxt(out_file, (x,y), delimiter='\t')
 			logger.debug("Wrote %s"%(out_file))
+
+def calcRegionBounds(counter):
+	'''
+	Returns the new lower and upper bounds over overlapped regions.
+	Parameters
+	=============================
+	counter		Binary counter array
+	>>> calcRegionBounds(np.array([1,1,0,0,1,1,1,0,0,1,1]))
+	array([[ 0,  1],
+	       [ 4,  6],
+	       [ 9, 10]])
+	'''
+	d = np.diff(counter)
+	idx, = d.nonzero()
+	if counter[0]:
+		idx = np.r_[-1, idx]
+	if counter[-1]:
+		idx = np.r_[idx, counter.size-1]
+	idx.shape = (-1,2)
+	idx[:,0] += 1
+	return idx
 
 #def main():
 
