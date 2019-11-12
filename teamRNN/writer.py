@@ -227,25 +227,14 @@ class output_aggregator:
 			self._load_arrays(chrom)
 			logger.debug("Feature vote row sums: %s"%(str(list(self.feature_vote_array.sum(axis=0)))))
 			logger.debug("Feature total row sums: %s"%(str(list(self.feature_total_array.sum(axis=0)))))
-			for index in irange(chrom_len):
-				index_votes = self.feature_vote_array[index]
-				index_totals = self.feature_total_array[index]
-				for feat_index in gff3_i2f.keys():
-					se = se_array[feat_index]
-					#if index_votes[feat_index] > 0:
-						#print chrom, index, feat_index, index_votes[feat_index], index_totals, index_votes[feat_index] >= threshold*index_totals
-					if index_votes[feat_index] >= threshold*index_totals and index_votes[feat_index] > 0:
-						if se[0] == 0:
-							se[0] = index+1
-						else:
-							se[1] = index+1
-						if index == chrom_len-1 and se[1]:
-							features.append((se[0],se[1],feat_index))
-							se[0],se[1] = 0,0
-					else:
-						if se[1] != 0:
-							features.append((se[0],se[1],feat_index))
-							se[0],se[1] = 0,0
+			for feat_index in gff3_i2f.keys():
+				vote_array = self.feature_vote_array[:,feat_index]
+				gtT_mask = vote_array >= threshold*self.feature_total_array[:,0]
+				gtZ_mask = vote_array > 0
+				mask = np.logical_and(gtT_mask, gtZ_mask)
+				bound_array = calcRegionBounds(mask)
+				for s,e in bound_array:
+					features.append((s+1,e+1,feat_index))
 			features.sort(key=itemgetter(0,1))
 			for s,e,feat_index in features:
 				full_name = gff3_i2f[feat_index]
