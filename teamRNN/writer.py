@@ -232,9 +232,9 @@ class output_aggregator:
 				gtT_mask = vote_array >= threshold*self.feature_total_array[:,0]
 				gtZ_mask = vote_array > 0
 				mask = np.logical_and(gtT_mask, gtZ_mask)
-				bound_array = calcRegionBounds(mask)
+				bound_array = calcRegionBounds(mask)+1
 				for s,e in bound_array:
-					features.append((s+1,e+1,feat_index))
+					features.append((s,e,feat_index))
 			features.sort(key=itemgetter(0,1))
 			for s,e,feat_index in features:
 				full_name = gff3_i2f[feat_index]
