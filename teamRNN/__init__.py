@@ -104,6 +104,8 @@ def main():
 	parser_train.add_argument('--reg_activity', action='store_true', help='Apply a regularizer to the activation layer')
 	parser_train.add_argument('--l1', metavar="FLOAT", help="L1 regularizer lambda [%(default)s]", default=0.01, type=float)
 	parser_train.add_argument('--l2', metavar="FLOAT", help="L2 regularizer lambda [None]", default=0, type=float)
+	parser_train.add_argument('--conv', metavar="INT", help="Width of 1D convolution [None]", default=0, type=int)
+	parser_train.add_argument('--batch_norm', action='store_true', help='Apply batch normalization between layers')
 	parser_train.add_argument('-H', '--hidden_list', metavar="STR", help='Comma separated list of hidden layer widths used after recurrent layers', type=str)
 	parser_train.add_argument('-f', '--force', action='store_true', help='Overwrite a previously saved model')
 	parser_train.add_argument('--train', metavar="STR", help='Comma separated list of chromosomes to train on [all]', type=str)
@@ -206,24 +208,36 @@ def train(args):
 	# Check target chromosomes
 	train_chroms = _target_checker(cached_args.train, IS, IS.FA.references)
 	test_chroms = _target_checker(cached_args.test, IS, [])
+
+	# Define the iterfunction
+	iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
+	
+	train_x = {}
+	train_y = {}
+	logger.info("Caching training data")
+	for chrom in sorted(train_chroms):
+		cb, xb, yb = zip(*iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size))
+		train_x[chrom] = np.vstack(xb)
+		train_y[chrom] = np.vstack(yb)
+		assert(train_x[chrom].shape == (len(xb)*model_batch, args.sequence_length, M.n_inputs))
+		assert(train_y[chrom].shape == (len(xb)*model_batch, args.sequence_length, M.n_outputs))
+		del cb, xb, yb
+		logger.info("Finished caching %s"%(chrom))
 	# Run
 	for E in irange(args.epochs):
-		iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
 		#### Train #################################################
 		train_start = time()
 		for chrom in sorted(train_chroms):
-			start_time = time()
-			if cached_args.stateful: M.model.reset_states()
-			for count, batch in enumerate(iter_func(chrom, seq_len=args.sequence_length, \
-					offset=args.offset, batch_size=cached_args.batch_size, \
-					hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
-				cb, xb, yb = batch
-				cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
-				#logger.debug("|cb| = %i  batch = %i  model = %i"%(len(cb), cached_args.batch_size, model_batch))
-				assert(len(cb) == model_batch)
-				MSE, acc, train_time = M.train(xb, yb)
-				logger.debug("TRAIN: Batch-%03i MSE=%.4f %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, MSE, cc, cs, ce, train_time, time()-start_time, len(xb)/train_time))
-				start_time = time()
+			history = LossHistory()
+			start = time()
+			M.model.fit(train_x[chrom], train_y[chrom], \
+				batch_size=model_batch, epochs=1, shuffle=False, \
+				callbacks=[history], verbose=0)
+			L5 = np.round(fivenum(history.losses),3)
+			A5 = np.round(fivenum(history.acc),3)
+			rate = train_x[chrom].shape[0]/float(time()-start)
+			logger.debug("E%i %s LOSS%s ACC%s %i seq/s"%(E, chrom, str(L5), str(A5), int(rate)))
+			#logger.debug("E-%i %s ACC  %s"%(E, chrom, str(fivenum(history.acc))))
 			if cached_args.stateful: M.model.reset_states()
 		logger.info("Epoch-%04i - Finished training in %i seconds"%(E, int(time()-train_start)))
 		#### Calculate MSE #########################################
@@ -263,6 +277,38 @@ def train(args):
 				M.save(epoch=E)
 			else:
 				M.save()
+	#### Write output #############################################
+	OA = writer.output_aggregator(args.reference, h5_file=os.path.join(args.directory, 'tmp_vote.h5'))
+	args.threshold = 0.5
+	args.output = os.path.join(args.directory, 'training_output.gff3')
+	# Classify the input
+	iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
+	#### Classify #################################################
+	for chrom in sorted(IS.FA.references):
+		if cached_args.stateful: M.model.reset_states()
+		for count, batch in enumerate(iter_func(chrom, seq_len=cached_args.sequence_length, \
+				offset=args.offset, batch_size=cached_args.batch_size, \
+				hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
+			cb, xb, yb = batch
+			cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
+			assert(len(cb) == model_batch)
+			y_pred_batch, predict_time = M.predict(xb, return_time=True)
+			logger.debug("PREDICT: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
+			if not y_pred_batch.sum(): logger.warn("No predictions in this batch")
+			for c, x, yp in zip(cb, xb, y_pred_batch):
+				chrom,s,e = c
+				if cached_args.stateful:
+					OA.vote(*c, array=yp, overwrite=True)
+				else:
+					OA.vote(*c, array=yp)
+			start_time = time()
+		if cached_args.stateful: M.model.reset_states()
+	#### Write #####################################################
+	if not hvd or (hvd and hvd.rank() == 0):
+		logger.info("Features need %.2f of the votes to be output"%(args.threshold))
+		logger.info("Writing %s"%(args.output))
+	OA.write_gff3(out_file=args.output, threshold=args.threshold)
+	#### Shut Down #################################################
 	del M
 	if hvd:
 		logger.debug("Waiting on other processes")
@@ -401,6 +447,15 @@ class _argChecker:
 			return x
 		else:
 			raise argparse.ArgumentTypeError("%s not a valid %s"%(x, self.name))
+
+import tensorflow
+class LossHistory(tensorflow.keras.callbacks.Callback):
+	def on_train_begin(self, logs={}):
+		self.losses = []
+		self.acc = []
+	def on_batch_end(self, batch, logs={}):
+		self.losses.append(logs.get('loss'))
+		self.acc.append(logs.get('acc'))
 
 if __name__ == "__main__":
 	main()

@@ -48,7 +48,7 @@ from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.client import device_lib
 from tensorflow.keras.backend import set_session, clear_session, set_floatx, set_epsilon
 from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed, GRU, CuDNNGRU
+from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed, GRU, CuDNNGRU, Conv1D, BatchNormalization, MaxPooling1D
 from tensorflow.keras.regularizers import l1, l2, l1_l2
 from tensorflow.keras.optimizers import RMSprop, Adam, SGD
 try:
@@ -65,7 +65,7 @@ class sleight_model:
 	def __init__(self, name, n_inputs=1, n_steps=50, n_outputs=1, n_neurons=20, n_layers=1, \
 		 learning_rate=0.001, dropout=0, cell_type='rnn', reg_kernel=False, reg_bias=False, \
 		 reg_activity=False, l1=0, l2=0, bidirectional=False, merge_mode='concat', \
-		 stateful=False, hidden_list=[], save_dir='.'):
+		 stateful=False, hidden_list=[], conv=False, batchN=False, save_dir='.'):
 		self.name = name # Name of the model
 		self.n_inputs = n_inputs # Number of input features
 		self.n_outputs = n_outputs # Number of outputs
@@ -76,6 +76,8 @@ class sleight_model:
 		self.dropout = dropout # Dropout rate
 		self.cell_type = cell_type # Type of RNN cells to use
 		self.gpu = self._detect_gpu()
+		self.conv = conv
+		self.bn = batchN
 		# https://keras.io/regularizers/
 		self.reg_kernel = reg_kernel # Use kernel regularization
 		self.reg_bias = reg_bias # Use bias regularization
@@ -153,13 +155,29 @@ class sleight_model:
 		######################################
 		self._compile_graph(self.model, 'mse', 'adam')
 		# Done
+	def _conv_layer(self):
+		if self.stateful:
+			logger.debug("Added stateful Conv1D")
+			bis = (self.stateful, self.n_steps, self.n_inputs)
+			return Conv1D(self.n_neurons, self.conv, strides=1, \
+				batch_input_shape = bis, activation = 'sigmoid', padding='same')
+		else:
+			logger.debug("Added Conv1D")
+			bis = (self.n_steps, self.n_inputs)
+			return Conv1D(self.n_neurons, self.conv, strides=1, \
+				input_shape = bis, activation = 'sigmoid', padding='same')
 	def _build_graph(self, test=False):
 		model = Sequential()
 		logger.debug("Creating %i %slayers with %s%% dropout after each layer"%(self.n_layers, "bidirectional " if self.bidirectional else "", self.dropout))
 		if self.bidirectional:
 			logger.debug("Bidirectional layers will be merged with %s"%(self.merge_mode))
+		if self.conv: model.add(self._conv_layer)
+		#if self.maxpool: model.add(MaxPooling1D(pool_size=self.maxpool, strides=1, padding="same"))
+		if self.bn: model.add(BatchNormalization())
 		for i in range(self.n_layers):
-			model.add(self._gen_rnn_layer(i, test))
+			I = i+1 if self.conv else i
+			model.add(self._gen_rnn_layer(I, test))
+			if self.bn: model.add(BatchNormalization())
 			# Dropout is added at the cell level
 			if self.dropout and self.gpu:
 				logger.debug("Adding dropout layer")
@@ -213,6 +231,8 @@ class sleight_model:
 				reg_str += '-l2(%s)'%(str(self.l2))
 		
 			out_name += reg_str
+		if self.conv: out_name += '_conv%i'%(self.conv)
+		if self.bn: out_name += '_bnorm'
 		if self.hidden_list:
 			out_name += '_'+'h'.join(map(str, self.hidden_list))
 		return out_name
@@ -241,11 +261,14 @@ class sleight_model:
 		if num == 0:
 			input_shape = (self.n_steps, self.n_inputs)
 		if self.stateful and not self.bidirectional:
-			if test:
-				logger.debug("Setting testing batch size to 1")
-				bis = (1, self.n_steps, self.n_inputs)
+			if num:
+				bis = (None, None, None)
 			else:
-				bis = (self.stateful, self.n_steps, self.n_inputs)
+				if test:
+					logger.debug("Setting testing batch size to 1")
+					bis = (1, self.n_steps, self.n_inputs)
+				else:
+					bis = (self.stateful, self.n_steps, self.n_inputs)
 			if not self.gpu:
 				return cell_func(self.n_neurons, return_sequences=True, \
 					kernel_regularizer=self._gen_reg('kernel'), \
