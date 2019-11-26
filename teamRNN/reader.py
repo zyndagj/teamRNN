@@ -71,9 +71,11 @@ class refcache:
 		return self.chrom_caches[chrom][sI:eI]
 
 class gff3_interval:
-	def __init__(self, gff3, include_chrom=False, force=False):
+	def __init__(self, gff3, out_dim=len(gff3_f2i)+2, include_chrom=False, force=False):
 		self.gff3 = gff3
 		self.pkl = "%s.pkl"%(gff3)
+		self.out_dim = out_dim
+		self.noTEMD = out_dim == len(gff3_f2i)
 		self.force = force
 		self._order_re = re.compile('Order=(?P<order>[^;/]+)')
 		self._sufam_re = re.compile('Superfamily=(?P<sufam>[^;]+)')
@@ -120,7 +122,7 @@ class gff3_interval:
 		sufam_str = sufam_match.group('sufam') if sufam_match else ''
 		return (order_str, sufam_str)
 	def fetch(self, chrom, start, end):
-		outA = np.zeros((end-start, len(gff3_f2i)+2), dtype=np.uint8)
+		outA = np.zeros((end-start, self.out_dim), dtype=np.uint8)
 		#print("Fetching %s:%i-%i"%(chrom, start, end))
 		for interval in self.interval_tree[chrom].search(start,end):
 			s = max(interval.start, start)-start
@@ -128,25 +130,27 @@ class gff3_interval:
 			element_id, te_order_id, te_sufam_id = interval.data
 			#print("Detected %s at %i-%i"%(i,s,e))
 			outA[s:e,element_id] = 1
-			outA[s:e,-2] = te_order_id
-			outA[s:e,-1] = te_sufam_id
+			if not self.noTEMD:
+				outA[s:e,-2] = te_order_id
+				outA[s:e,-1] = te_sufam_id
 		return outA
 
 class input_slicer:
-	def __init__(self, fasta_file, meth_file, gff3_file='', quality=-1, ploidy=2, stateful=False):
+	def __init__(self, fasta_file, meth_file, gff3_file='', quality=-1, ploidy=2, out_dim=len(gff3_f2i)+2, stateful=False):
 		self.fasta_file = fasta_file
 		self.FA = FastaFile(fasta_file)
 		self.meth_file = meth_file
 		self.M5 = False if stateful else Meth5py(meth_file, fasta_file)
 		self.gff3_file = gff3_file
 		if gff3_file:
-			self.GI = gff3_interval(gff3_file)
+			self.GI = gff3_interval(gff3_file, out_dim=out_dim)
 		self.RC = refcache(fasta_file)
 		self.quality = quality
 		self.ploidy = ploidy
+		self.out_dim = out_dim
 		if stateful:
 			self.pool = mp.Pool(4, slicer_init, (self.fasta_file, self.meth_file, \
-						self.gff3_file, self.quality, self.ploidy))
+						self.gff3_file, self.quality, self.ploidy, self.out_dim))
 		else:
 			self.pool = False
 	def __del__(self):
@@ -314,10 +318,10 @@ class input_slicer:
 	def _get_region_map(self, cur, chrom, chrom_len, chrom_quality, seq_len):
 		return self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len, print_region=False)
 
-def slicer_init(fasta_file, meth_file, gff3_file, quality, ploidy):
+def slicer_init(fasta_file, meth_file, gff3_file, quality, ploidy, out_dim):
 	import os
 	global wIS
-	wIS = input_slicer(fasta_file, meth_file, gff3_file, quality, ploidy)
+	wIS = input_slicer(fasta_file, meth_file, gff3_file, quality, ploidy, out_dim)
 	logger.debug("%i Finished initializing worker input slicer"%(os.getpid()))
 def worker_get_region(region_start, chrom, chrom_len, chrom_quality, seq_len):
 	#global wIS

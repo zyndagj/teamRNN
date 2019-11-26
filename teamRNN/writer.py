@@ -57,8 +57,9 @@ class output_aggregator:
 	>>> OA.vote(chrom, s, e, out_array)
 	>>> OA.write_gff3()
 	'''
-	def __init__(self, fasta_file, h5_file='tmp_vote.h5'):
+	def __init__(self, fasta_file, noTEMD=False, h5_file='tmp_vote.h5'):
 		self.fasta_file = fasta_file
+		self.noTEMD = noTEMD
 		with FastaFile(fasta_file) as FA:
 			self.chrom_dict = {c:FA.get_reference_length(c) for c in FA.references}
 		self.cur_chrom = ''
@@ -79,10 +80,11 @@ class output_aggregator:
 			'/votes/features', self.feature_vote_array)
 		self.feature_total_array = self._swap_dset(self.cur_chrom, chrom, \
 			'/totals/features', self.feature_total_array)
-		self.te_order_array = self._swap_dset(self.cur_chrom, chrom, \
-			'/votes/tes/order', self.te_order_array)
-		self.te_sufam_array = self._swap_dset(self.cur_chrom, chrom, \
-			'/votes/tes/sufam', self.te_sufam_array)
+		if not self.noTEMD:
+			self.te_order_array = self._swap_dset(self.cur_chrom, chrom, \
+				'/votes/tes/order', self.te_order_array)
+			self.te_sufam_array = self._swap_dset(self.cur_chrom, chrom, \
+				'/votes/tes/sufam', self.te_sufam_array)
 		#self.te_total_array = self.H5[chrom+'/totals/tes']
 		logger.debug("Took %i seconds to swap from %s to %s"%(int(time()-s_time), self.cur_chrom, chrom))
 		self.cur_chrom = chrom
@@ -108,11 +110,12 @@ class output_aggregator:
 				chrom+'/votes/features')
 			self.feature_total_array = self._create_dset((chrom_len, 1), \
 				chrom+'/totals/features')
-			# These do not need a total array since there is only a single value per location
-			self.te_order_array = self._create_dset((chrom_len, n_order_ids), \
-				chrom+'/votes/tes/order')
-			self.te_sufam_array = self._create_dset((chrom_len, n_sufam_ids), \
-				chrom+'/votes/tes/sufam')
+			if not self.noTEMD:
+				# These do not need a total array since there is only a single value per location
+				self.te_order_array = self._create_dset((chrom_len, n_order_ids), \
+					chrom+'/votes/tes/order')
+				self.te_sufam_array = self._create_dset((chrom_len, n_sufam_ids), \
+					chrom+'/votes/tes/sufam')
 		self.cur_chrom = chrom
 		# Init this
 		self.te_feature_ids = set([gff3_f2i[s+f] for f in te_feature_names for s in '+-'])
@@ -120,19 +123,23 @@ class output_aggregator:
 		self.features_tp = np.zeros(n_features)
 		self.features_fn = np.zeros(n_features)
 		self.features_fp = np.zeros(n_features)
-		self.te_order_tp = np.zeros(n_order_ids)
-		self.te_order_fn = np.zeros(n_order_ids)
-		self.te_order_fp = np.zeros(n_order_ids)
-		self.te_sufam_tp = np.zeros(n_sufam_ids)
-		self.te_sufam_fn = np.zeros(n_sufam_ids)
-		self.te_sufam_fp = np.zeros(n_sufam_ids)
+		if not self.noTEMD:
+			self.te_order_tp = np.zeros(n_order_ids)
+			self.te_order_fn = np.zeros(n_order_ids)
+			self.te_order_fp = np.zeros(n_order_ids)
+			self.te_sufam_tp = np.zeros(n_sufam_ids)
+			self.te_sufam_fn = np.zeros(n_sufam_ids)
+			self.te_sufam_fp = np.zeros(n_sufam_ids)
 	def vote(self, chrom, start, end, array, overwrite=False):
 		#print "VOTE:", chrom, start, end, np.nonzero(array)
 		# Split the array
-		assert(array.shape[1] == len(gff3_i2f)+2)
+		if not self.noTEMD:
+			assert(array.shape[1] == len(gff3_i2f)+2)
+			te_order_array = array[:,-2]
+			te_sufam_array = array[:,-1]
+		else:
+			assert(array.shape[1] == len(gff3_i2f))
 		feature_array = array[:,:len(gff3_i2f)]
-		te_order_array = array[:,-2]
-		te_sufam_array = array[:,-1]
 		# Load the current chromosome arrays
 		if self.cur_chrom != chrom:
 			self._load_arrays(chrom)
@@ -148,29 +155,33 @@ class output_aggregator:
 				self.feature_vote_array[start:end] = feature_array
 			else:
 				self.feature_vote_array[start:end] += feature_array
-		# Track te class/family
-		if sum(te_order_array):
-			for i,v in enumerate(te_order_array):
-				if overwrite:
-					self.te_order_array[start+i,v] = 1
-				else:
-					self.te_order_array[start+i,v] += 1
-		if sum(te_sufam_array):
-			for i,v in enumerate(te_sufam_array):
-				if overwrite:
-					self.te_sufam_array[start+i,v] = 1
-				else:
-					self.te_sufam_array[start+i,v] += 1
+		if not self.noTEMD:
+			# Track te class/family
+			if sum(te_order_array):
+				for i,v in enumerate(te_order_array):
+					if overwrite:
+						self.te_order_array[start+i,v] = 1
+					else:
+						self.te_order_array[start+i,v] += 1
+			if sum(te_sufam_array):
+				for i,v in enumerate(te_sufam_array):
+					if overwrite:
+						self.te_sufam_array[start+i,v] = 1
+					else:
+						self.te_sufam_array[start+i,v] += 1
 	def compare(self, chrom, start, end, pred_array, true_array):
-		assert(array.shape[1] == len(gff3_i2f)+2)
+		if not self.noTEMD:
+			assert(array.shape[1] == len(gff3_i2f)+2)
+			pred_te_order_array = pred_array[:,-2]
+			pred_te_sufam_array = pred_array[:,-1]
+			true_te_order_array = true_array[:,-2]
+			true_te_sufam_array = true_array[:,-1]
+		else:
+			assert(array.shape[1] == len(gff3_i2f))
 		assert(pred_array.shape == true_array.shape)
 		# Split the array
 		pred_feature_array = pred_array[:,:len(gff3_i2f)]
-		pred_te_order_array = pred_array[:,-2]
-		pred_te_sufam_array = pred_array[:,-1]
 		true_feature_array = true_array[:,:len(gff3_i2f)]
-		true_te_order_array = true_array[:,-2]
-		true_te_sufam_array = true_array[:,-1]
 		# Track features
 		for i in irange(pread_array.shape[0]):
 			for j in irange(len(gff3_i2f)):
@@ -183,7 +194,7 @@ class output_aggregator:
 				elif pred_feature_array[i,j] == 1:
 					self.features_tp[j] += 1
 					# TEs
-					if j in self.te_feature_ids:
+					if j in self.te_feature_ids and not self.noTEMD:
 						# Order
 						if true_te_order_array[i] == 0:
 							if pred_te_order_array[i] != 0:
@@ -207,9 +218,10 @@ class output_aggregator:
 		if features:
 			for i in irange(len(gff3_i2f)):
 				name = gff3_i2f[i]
-				tp = self.te_features_tp[i]
-				fp = self.te_features_fp[i]
-				fn = self.te_features_fn[i]
+				if not self.noTEMD:
+					tp = self.te_features_tp[i]
+					fp = self.te_features_fp[i]
+					fn = self.te_features_fn[i]
 				sen = str(tp/float(tp+fn))
 				prec = str(tp/float(tp+fp))
 				oStr.append('%s, %i, %i, %i, %s, %s'%(name, tp, fp, fn, sen, prec))
@@ -241,7 +253,7 @@ class output_aggregator:
 				strand = full_name[0]
 				feature_name = full_name[1:]
 				feature_str = "%s\tteamRNN\t%s\t%i\t%i\t.\t%s\t.\tID=team_%i"%(chrom, feature_name, s, e, strand, total_feature_count)
-				if feature_name in te_feature_names:
+				if feature_name in te_feature_names and not self.noTEMD:
 					argmax_order_sum = np.argmax(np.sum(self.te_order_array[s-1:e], axis=0))
 					te_order = te_order_i2f[argmax_order_sum]
 					argmax_sufam_sum = np.argmax(np.sum(self.te_sufam_array[s-1:e], axis=0))

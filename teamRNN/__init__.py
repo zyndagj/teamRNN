@@ -107,6 +107,7 @@ def main():
 	parser_train.add_argument('--conv', metavar="INT", help="Width of 1D convolution [None]", default=0, type=int)
 	parser_train.add_argument('--batch_norm', action='store_true', help='Apply batch normalization between layers')
 	parser_train.add_argument('-H', '--hidden_list', metavar="STR", help='Comma separated list of hidden layer widths used after recurrent layers', type=str)
+	parser_train.add_argument('--noTEMD', action='store_true', help='Disable the collection and prediction of TE order and superfamiles')
 	parser_train.add_argument('-f', '--force', action='store_true', help='Overwrite a previously saved model')
 	parser_train.add_argument('--train', metavar="STR", help='Comma separated list of chromosomes to train on [all]', type=str)
 	parser_train.add_argument('--test', metavar="STR", help='Comma separated list of chromosomes to test on [none]', type=str)
@@ -164,11 +165,13 @@ def train(args):
 		with open(args.config, 'rb') as CF:
 			cached_args = pickle.load(CF)
 		# Open the input
-		IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, stateful=bool(cached_args.stateful))
+		out_dim = calc_n_outputs(args, cached_args)
+		IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, out_dim, stateful=bool(cached_args.stateful))
 		init_hvd(args)
 	else:
 		# Open the input
-		IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, stateful=bool(args.stateful))
+		out_dim = calc_n_outputs(args, args)
+		IS = reader.input_slicer(args.reference, args.methratio, args.annotation, args.quality, args.ploidy, out_dim, stateful=bool(args.stateful))
 		init_hvd(args)
 		# Save the parameters
 		if not hvd or (hvd and hvd.rank() == 0):
@@ -186,7 +189,7 @@ def train(args):
 	M = model.sleight_model(args.name, \
 		n_inputs = 10, \
 		n_steps = cached_args.sequence_length, \
-		n_outputs = len(constants.gff3_f2i)+2, \
+		n_outputs = calc_n_outputs(args, cached_args), \
 		n_neurons = cached_args.neurons, \
 		n_layers = cached_args.layers, \
 		learning_rate = cached_args.learning_rate, \
@@ -201,6 +204,7 @@ def train(args):
 		merge_mode = cached_args.merge, \
 		stateful = model_batch if cached_args.stateful else False, \
 		hidden_list=hidden_list, \
+		noTEMD = 'noTEMD' in cached_args and cached_args.noTEMD, \
 		save_dir=args.directory)
 	# See if there is a checkpoint to restore from
 	if glob(M.save_file+"*") and not args.force:
@@ -217,6 +221,7 @@ def train(args):
 	logger.info("Caching training data")
 	for chrom in sorted(train_chroms):
 		cb, xb, yb = zip(*iter_func(chrom, seq_len=args.sequence_length, offset=args.offset, batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size))
+		#print cb
 		train_x[chrom] = np.vstack(xb)
 		train_y[chrom] = np.vstack(yb)
 		assert(train_x[chrom].shape == (len(xb)*model_batch, args.sequence_length, M.n_inputs))
@@ -259,7 +264,7 @@ def train(args):
 					assert(len(cb) == model_batch)
 					y_pred_batch, predict_time = M.predict(xb, return_time=True)
 					MI.add_predict_batch(cb, yb, y_pred_batch)
-					logger.debug("TEST: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
+					#logger.debug("TEST: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
 					start_time = time()
 				if cached_args.stateful: M.model.reset_states()
 				logger.debug("Finished testing %s in %i seconds"%(chrom, int(time()-chrom_time)))
@@ -278,31 +283,10 @@ def train(args):
 			else:
 				M.save()
 	#### Write output #############################################
-	OA = writer.output_aggregator(args.reference, h5_file=os.path.join(args.directory, 'tmp_vote.h5'))
 	args.threshold = 0.5
 	args.output = os.path.join(args.directory, 'training_output.gff3')
-	# Classify the input
-	iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
 	#### Classify #################################################
-	for chrom in sorted(IS.FA.references):
-		if cached_args.stateful: M.model.reset_states()
-		for count, batch in enumerate(iter_func(chrom, seq_len=cached_args.sequence_length, \
-				offset=args.offset, batch_size=cached_args.batch_size, \
-				hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
-			cb, xb, yb = batch
-			cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
-			assert(len(cb) == model_batch)
-			y_pred_batch, predict_time = M.predict(xb, return_time=True)
-			logger.debug("PREDICT: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
-			if not y_pred_batch.sum(): logger.warn("No predictions in this batch")
-			for c, x, yp in zip(cb, xb, y_pred_batch):
-				chrom,s,e = c
-				if cached_args.stateful:
-					OA.vote(*c, array=yp, overwrite=True)
-				else:
-					OA.vote(*c, array=yp)
-			start_time = time()
-		if cached_args.stateful: M.model.reset_states()
+	OA = make_predictions(IS, M, args, cached_args, model_batch)
 	#### Write #####################################################
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Features need %.2f of the votes to be output"%(args.threshold))
@@ -330,7 +314,9 @@ def classify(args):
 	with open(args.config, 'rb') as CF:
 		cached_args = pickle.load(CF)
 	# Open the input
-	IS = reader.input_slicer(args.reference, args.methratio, quality=args.quality, ploidy=args.ploidy, stateful=bool(cached_args.stateful))
+	out_dim = calc_n_outputs(args, cached_args)
+	IS = reader.input_slicer(args.reference, args.methratio, quality=args.quality, ploidy=args.ploidy, \
+		out_dim=out_dim, stateful=bool(cached_args.stateful))
 	init_hvd(args)
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
 	model_batch = int(cached_args.batch_size/args.hvd_size) if hvd and cached_args.stateful else cached_args.batch_size
@@ -338,7 +324,7 @@ def classify(args):
 	M = model.sleight_model(args.name, \
 		n_inputs = 10, \
 		n_steps = cached_args.sequence_length, \
-		n_outputs = len(constants.gff3_f2i)+2, \
+		n_outputs = calc_n_outputs(args, cached_args), \
 		n_neurons = cached_args.neurons, \
 		n_layers = cached_args.layers, \
 		learning_rate = cached_args.learning_rate, \
@@ -353,6 +339,7 @@ def classify(args):
 		merge_mode = cached_args.merge, \
 		stateful = model_batch if cached_args.stateful else False, \
 		hidden_list=hidden_list, \
+		noTEMD = 'noTEMD' in cached_args and cached_args.noTEMD, \
 		save_dir=args.directory)
 	# See if there is a checkpoint to restore from
 	if not glob(M.save_file+"*"):
@@ -360,36 +347,8 @@ def classify(args):
 		sys.exit()
 	M.restore()
 	#print M.model.summary()
-	# Open the output
-	OA = writer.output_aggregator(args.reference)
-	# Classify the input
-	def non_zero(a):
-	        return ' '.join(["%i:%i"%(i,a[i]) for i in np.nonzero(a)[0]])
-	iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
 	#### Classify #################################################
-	train_start = time()
-	for chrom in sorted(IS.FA.references):
-		start_time = time()
-		if cached_args.stateful: M.model.reset_states()
-		for count, batch in enumerate(iter_func(chrom, seq_len=cached_args.sequence_length, \
-				offset=args.offset, batch_size=cached_args.batch_size, \
-				hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
-			cb, xb = batch
-			cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
-			#logger.debug("|cb| = %i  batch = %i  model = %i"%(len(cb), cached_args.batch_size, model_batch))
-			assert(len(cb) == model_batch)
-			y_pred_batch, predict_time = M.predict(xb, return_time=True)
-			logger.debug("PREDICT: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
-			if not y_pred_batch.sum(): logger.warn("No predictions in this batch")
-			for c, x, yp in zip(cb, xb, y_pred_batch):
-				chrom,s,e = c
-				#for i in range(s,e): print (chrom,i), non_zero(yp[i-s])
-				if cached_args.stateful:
-					OA.vote(*c, array=yp, overwrite=True)
-				else:
-					OA.vote(*c, array=yp)
-			start_time = time()
-		if cached_args.stateful: M.model.reset_states()
+	OA = make_predictions(IS, M, args, cached_args, model_batch)
 	#### Write #####################################################
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Features need %.2f of the votes to be output"%(args.threshold))
@@ -397,6 +356,52 @@ def classify(args):
 	OA.write_gff3(out_file=args.output, threshold=args.threshold)
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Done")
+
+def calc_n_outputs(args, cached_args):
+	if 'noTEMD' in args and args.noTEMD:
+		logger.info("Not including TE metadata in output")
+		return len(constants.gff3_f2i)
+	elif 'noTEMD' in cached_args and cached_args.noTEMD:
+		logger.info("Not including TE metadata in output")
+		return len(constants.gff3_f2i)
+	return len(constants.gff3_f2i)+2
+
+def make_predictions(IS, M, args, cached_args, model_batch):
+	# Open the output
+	noTEMD = 'noTEMD' in cached_args and cached_args.noTEMD
+	OA = writer.output_aggregator(args.reference, noTEMD=noTEMD, h5_file=os.path.join(args.directory, 'tmp_vote.h5'))
+	# Store iteration method
+	iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
+	#### Classify #################################################
+	for chrom in sorted(IS.FA.references):
+		seqs = 0
+		start_time = time()
+		if cached_args.stateful: M.model.reset_states()
+		for count, batch in enumerate(iter_func(chrom, seq_len=cached_args.sequence_length, \
+				offset=args.offset, batch_size=cached_args.batch_size, \
+				hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
+			if len(batch) == 2:
+				cb, xb = batch
+			elif len(batch) == 3:
+				cb, xb, yb = batch
+			else:
+				raise ValueError(len(batch) in (2,3))
+			cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
+			assert(len(cb) == model_batch)
+			seqs += model_batch
+			y_pred_batch, predict_time = M.predict(xb, return_time=True)
+			#logger.debug("PREDICT: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
+			if not y_pred_batch.sum(): logger.warn("No predictions in Batch-%03i %s:%i-%i"%(count, cc, cs, ce))
+			for c, x, yp in zip(cb, xb, y_pred_batch):
+				chrom,s,e = c
+				if cached_args.stateful:
+					OA.vote(*c, array=yp, overwrite=True)
+				else:
+					OA.vote(*c, array=yp)
+		if cached_args.stateful: M.model.reset_states()
+		rate = seqs/float(time()-start_time)
+		logger.debug("Finished predictions for %s at a rate of %.1f seq/s"%(chrom, rate))
+	return OA
 
 def test_barrier(msg):
 	if hvd.rank() == 0: logger.debug(msg)

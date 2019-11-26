@@ -51,6 +51,8 @@ from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed, GRU, CuDNNGRU, Conv1D, BatchNormalization, MaxPooling1D
 from tensorflow.keras.regularizers import l1, l2, l1_l2
 from tensorflow.keras.optimizers import RMSprop, Adam, SGD
+from tensorflow.keras.losses import BinaryCrossentropy
+from tensorflow.keras.metrics import categorical_accuracy
 try:
 	import horovod.tensorflow.keras as hvd
 	#hvd.init() # Only need to do this once
@@ -65,7 +67,7 @@ class sleight_model:
 	def __init__(self, name, n_inputs=1, n_steps=50, n_outputs=1, n_neurons=20, n_layers=1, \
 		 learning_rate=0.001, dropout=0, cell_type='rnn', reg_kernel=False, reg_bias=False, \
 		 reg_activity=False, l1=0, l2=0, bidirectional=False, merge_mode='concat', \
-		 stateful=False, hidden_list=[], conv=False, batchN=False, save_dir='.'):
+		 stateful=False, hidden_list=[], conv=False, batchN=False, noTEMD=False, save_dir='.'):
 		self.name = name # Name of the model
 		self.n_inputs = n_inputs # Number of input features
 		self.n_outputs = n_outputs # Number of outputs
@@ -78,6 +80,7 @@ class sleight_model:
 		self.gpu = self._detect_gpu()
 		self.conv = conv
 		self.bn = batchN
+		self.noTEMD = noTEMD
 		# https://keras.io/regularizers/
 		self.reg_kernel = reg_kernel # Use kernel regularization
 		self.reg_bias = reg_bias # Use bias regularization
@@ -153,7 +156,10 @@ class sleight_model:
 		######################################
 		# Define optimizer and compile
 		######################################
-		self._compile_graph(self.model, 'mse', 'adam')
+		if self.noTEMD:
+			self._compile_graph(self.model, 'bce', 'adam')
+		else:
+			self._compile_graph(self.model, 'mse', 'adam')
 		# Done
 	def _conv_layer(self):
 		if self.stateful:
@@ -190,12 +196,16 @@ class sleight_model:
 				#model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
 				model.add(TimeDistributed(Dense(hidden_neurons, activation='tanh')))
 		# Final
-		model.add(TimeDistributed(Dense(self.n_outputs, activation='linear')))
+		act = 'sigmoid' if self.noTEMD else 'linear'
+		logger.debug("Last layer will have %s activation"%(act))
+		model.add(TimeDistributed(Dense(self.n_outputs, activation=act)))
 		return model
 	def _compile_graph(self, model, loss_func='mse', opt_func='adam'):
 		loss_functions = {'mse':'mean_squared_error', \
 				'msle':'mean_squared_logarithmic_error', \
-				'cc':'categorical_crossentropy'}
+				'cc':'categorical_crossentropy', \
+				'bce':'binary_crossentropy'}
+				#'bce':BinaryCrossentropy()}
 				#'scc':'sparse_categorical_crossentropy'} - wants a single output
 		opt_functions = {'adam':Adam, 'sgd':SGD, 'rms':RMSprop}
 		logger.debug("Using the %s optimizer with a learning rate of %s and the %s loss function"%(opt_func, str(self.learning_rate), loss_func))
@@ -207,6 +217,7 @@ class sleight_model:
 		else:
 			opt = opt_functions[opt_func](lr=self.learning_rate)
 		# compile
+		#model.compile(loss=loss_functions[loss_func], optimizer=opt, metrics=['binary_accuracy'])
 		model.compile(loss=loss_functions[loss_func], optimizer=opt, metrics=['accuracy'])
 		#model.summary()
 	def _gen_name(self):
@@ -329,7 +340,10 @@ class sleight_model:
 			logger.debug("Saved model")
 	def _make_stateful_model(self):
 		self.test_model = self._build_graph(test=True)
-		self._compile_graph(self.test_model, 'mse', 'adam')
+		if self.noTEMD:
+			self._compile_graph(self.model, 'bce', 'adam')
+		else:
+			self._compile_graph(self.model, 'mse', 'adam')
 		logger.debug("Created test model")
 		self.test = True
 	def sync_stateful_online(self):

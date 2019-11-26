@@ -40,16 +40,19 @@ class TestReader(unittest.TestCase):
 		logStream.truncate(0)
 		if os.path.exists('mse_tmp'): rmtree('mse_tmp')
 		## Runs after every test function ##
-	def _compare_against_file(self, out_lines, in_file):
+	def _compare_against_file(self, out_lines, in_file, noTEMD=False):
 		self.assertTrue(os.path.exists(in_file))
 		with open(in_file,'r') as GFF3:
 			input_lines = GFF3.readlines()
 		self.assertEqual(len(input_lines), len(out_lines))
 		for ol, fl in zip(out_lines, input_lines):
 			if ol[0] != '#':
-				ols = ol.split('\t')[:9]
+				ols = ol.rstrip('\n').split('\t')[:9]
 				ols[1] = 'test'
-				fls = fl.rstrip('\n').split('\t')[:9]
+				if noTEMD:
+					fls = fl.rstrip('\n').split(';')[0].split('\t')[:9]
+				else:
+					fls = fl.rstrip('\n').split('\t')[:9]
 				self.assertEqual(ols, fls)
 	def test_refcache(self):
 		RC = reader.refcache(self.fa)
@@ -771,6 +774,91 @@ class TestReader(unittest.TestCase):
 				self.assertEqual(test_split, cli_split)
 		if os.path.exists(out_dir):
 			rmtree(out_dir)
+	def test_stateful_cli_noTEMD_01(self):
+		if not self.test_model: return
+		n, out_dir, lr, sl = '128', 'test_stateful_cli', '0.01', '10'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'-v', 'train', \
+			'-B', '3', \
+			'-A', self.gff3, \
+			'-E', '200', \
+			'-r', lr, \
+			'-l', '2', \
+			'-L', sl, \
+			'-n', n, \
+			'--every', '50', \
+			'--noTEMD', \
+			'--stateful', \
+			'-f']
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		#for line in splitOut:
+		#	for w in ('LOSS','atches','Last'):
+		#		if w in line:
+		#			print line
+		#			break
+		self.assertTrue('Done' in splitOut[-2])
+		#for f in glob('test_cli/*'): print f
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_%sxlstm%s_stateful3_learn%s_drop0.h5'%(out_dir, sl, '2', n, lr)))
+		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
+	def test_stateful_cli_noTEMD_02(self):
+		if not self.test_model: return
+		out_dir = 'test_stateful_cli'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'classify', \
+			'-O', '%s/out.gff3'%(out_dir)]
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		#for so in splitOut: print so
+		self.assertTrue('Done' in splitOut[-2])
+		self.assertTrue(os.path.exists('%s/out.gff3'%(out_dir)))
+		OF = open('%s/out.gff3'%(out_dir),'r').readlines()
+		self._compare_against_file(OF, self.gff3, True)
+		if os.path.exists(out_dir):
+			rmtree(out_dir)
+	def test_gff2array_noTEMD(self):
+		###gff-version   3
+		#Chr1    test    CDS     3       10      .       +       .       ID=team_0
+		#Chr1    test    gene    3       10      .       +       .       ID=team_1
+		#Chr1    test    exon    4       7       .       +       .       ID=team_2
+		#Chr1    test    transposable_element    11      15      .       -       .       ID=team_3;Order=LTR;Superfamily=Gypsy
+		#Chr2    test    CDS     2       15      .       -       .       ID=team_4
+		#Chr2    test    gene    2       15      .       -       .       ID=team_5
+		#Chr2    test    exon    3       7       .       -       .       ID=team_6
+		#Chr2    test    exon    9       14      .       -       .       ID=team_7
+		GI = reader.gff3_interval(self.gff3, out_dim=len(constants.gff3_f2i), force=True)
+		res1 = GI.fetch('Chr1', 0, 15)
+		tmp = np.zeros((15, self.n_outputs-2), dtype=np.bool)
+		tmp[2:10,constants.gff3_f2i['+CDS']] = 1
+		tmp[2:10,constants.gff3_f2i['+gene']] = 1
+		tmp[3:7,constants.gff3_f2i['+exon']] = 1
+		tmp[10:15,constants.gff3_f2i['-transposable_element']] = 1
+		self.assertEqual(res1.shape, tmp.shape)
+		for i in range(15):
+			if not np.array_equal(res1[i], tmp[i]):
+				print("At index %i"%(i))
+				print("Code:",res1[i])
+				print("Test:",tmp[i])
+		self.assertTrue(np.array_equal(res1, tmp))
+		res2 = GI.fetch('Chr2', 0, 18)
+		tmp = np.zeros((18,self.n_outputs-2))
+		tmp[1:15,constants.gff3_f2i['-CDS']] = 1
+		tmp[1:15,constants.gff3_f2i['-gene']] = 1
+		tmp[2:7,constants.gff3_f2i['-exon']] = 1
+		tmp[8:14,constants.gff3_f2i['-exon']] = 1
+		self.assertTrue(np.array_equal(res2, tmp))
 
 def find_max(seq_len, offset, batch_size, hvd_size, chrom_len=20):
 	full_len = seq_len+(batch_size-1)*offset
