@@ -166,12 +166,12 @@ class sleight_model:
 			logger.debug("Added stateful Conv1D")
 			bis = (self.stateful, self.n_steps, self.n_inputs)
 			return Conv1D(self.n_neurons, self.conv, strides=1, \
-				batch_input_shape = bis, activation = 'sigmoid', padding='same')
+				batch_input_shape = bis, activation = 'relu', padding='same')
 		else:
 			logger.debug("Added Conv1D")
 			bis = (self.n_steps, self.n_inputs)
 			return Conv1D(self.n_neurons, self.conv, strides=1, \
-				input_shape = bis, activation = 'sigmoid', padding='same')
+				input_shape = bis, activation = 'relu', padding='same')
 	def _build_graph(self, test=False):
 		model = Sequential()
 		logger.debug("Creating %i %slayers with %s%% dropout after each layer"%(self.n_layers, "bidirectional " if self.bidirectional else "", self.dropout))
@@ -217,7 +217,6 @@ class sleight_model:
 		else:
 			opt = opt_functions[opt_func](lr=self.learning_rate)
 		# compile
-		#model.compile(loss=loss_functions[loss_func], optimizer=opt, metrics=['binary_accuracy'])
 		model.compile(loss=loss_functions[loss_func], optimizer=opt, metrics=['accuracy'])
 		#model.summary()
 	def _gen_name(self):

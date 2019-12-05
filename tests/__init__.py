@@ -12,7 +12,7 @@ import logging
 FORMAT = "[%(levelname)s - %(filename)s:%(lineno)s - %(funcName)15s] %(message)s"
 logging.basicConfig(stream=logStream, level=logging.DEBUG, format=FORMAT)
 import teamRNN
-from teamRNN import reader, constants, writer, model
+from teamRNN import reader, constants, writer, model, util
 from pysam import FastaFile
 from shutil import rmtree
 import numpy as np
@@ -54,6 +54,40 @@ class TestReader(unittest.TestCase):
 				else:
 					fls = fl.rstrip('\n').split('\t')[:9]
 				self.assertEqual(ols, fls)
+	def test_calcRegionBounds_inclusive(self):
+		IA = np.array([1,1,0,0,1,1,1,0,0,1,1], dtype=np.bool)
+		bounds = util.calcRegionBounds(IA, inclusive=True)
+		self.assertEqual(list(bounds[0]), [0,1])
+		self.assertEqual(list(bounds[1]), [4,6])
+		self.assertEqual(list(bounds[2]), [9,10])
+		self.assertEqual(bounds.shape, (3,2))
+	def test_calcRegionBounds_exclusive(self):
+		IA = np.array([1,1,0,0,1,1,1,0,0,1,1], dtype=np.bool)
+		bounds = util.calcRegionBounds(IA)
+		self.assertEqual(list(bounds[0]), [0,2])
+		self.assertEqual(list(bounds[1]), [4,7])
+		self.assertEqual(list(bounds[2]), [9,11])
+		self.assertEqual(bounds.shape, (3,2))
+	def test_calcRegionBounds_exclusive_zero(self):
+		IA = np.array([1,1,0,0,1,1,1,0,0,1,1], dtype=np.bool)
+		bounds = util.calcRegionBounds(IA, null=1)
+		self.assertEqual(list(bounds[0]), [2,4])
+		self.assertEqual(list(bounds[1]), [7,9])
+		self.assertEqual(bounds.shape, (2,2))
+	def test_bridge_array(self):
+		ORIG = np.array([1,1,0,0,1,1,1,0,0,0,1,1], dtype=np.bool)
+		IA = np.copy(ORIG)
+		util.bridge_array(IA, min_size=1, max_gap_size=1)
+		self.assertEqual(list(IA), [1,1,0,0,1,1,1,0,0,0,1,1])
+		IA = np.copy(ORIG)
+		util.bridge_array(IA, min_size=2, max_gap_size=2)
+		self.assertEqual(list(IA), [1,1,1,1,1,1,1,0,0,0,1,1])
+		IA = np.copy(ORIG)
+		util.bridge_array(IA, min_size=3, max_gap_size=2)
+		self.assertEqual(list(IA), [1,1,1,1,1,1,1,0,0,0,0,0])
+		IA = np.copy(ORIG)
+		util.bridge_array(IA, min_size=4, max_gap_size=3)
+		self.assertEqual(list(IA), [1,1,1,1,1,1,1,1,1,1,1,1])
 	def test_refcache(self):
 		RC = reader.refcache(self.fa)
 		FA = FastaFile(self.fa)
@@ -377,12 +411,20 @@ class TestReader(unittest.TestCase):
 		from functools import reduce
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		OA = writer.output_aggregator(self.fa)
-		for c,x,y in IS.genome_iter(offset=2, batch_size=2):
-			#iSet = reduce(set.union, [set(np.where(b == 1)[0]) for b in y])
-			#fList = sorted([constants.gff3_i2f[i] for i in iSet])
-			#print("%s:%i-%i [%s]"%(*c, ', '.join(fList)))
-			for i in range(len(c)):
-				OA.vote(*c[0], array=y[0])
+		for chrom in sorted(IS.FA.references):
+			for cb,xb,yb in IS.chrom_iter(chrom, seq_len=5, offset=2, batch_size=2):
+				for c,y in zip(cb, yb):
+					OA.vote(*c, array=y)
+		out_lines = OA.write_gff3()
+		self._compare_against_file(out_lines, self.gff3)
+	def test_vote_stateful(self):
+		from functools import reduce
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		OA = writer.output_aggregator(self.fa)
+		for chrom in sorted(IS.FA.references):
+			for cb,xb,yb in IS.chrom_iter(chrom, seq_len=5, offset=2, batch_size=2):
+				for c,y in zip(cb, yb):
+					OA.vote(*c, array=y, overwrite=True)
 		out_lines = OA.write_gff3()
 		self._compare_against_file(out_lines, self.gff3)
 	def test_batch_new(self):
@@ -679,6 +721,8 @@ class TestReader(unittest.TestCase):
 			'-D', 'test_cli', \
 			'-N', 'plain', \
 			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
 			'train', \
 			'-B', '6', \
 			'-A', self.gff3, \
@@ -702,6 +746,8 @@ class TestReader(unittest.TestCase):
 			'-D', 'test_cli', \
 			'-N', 'plain', \
 			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
 			'classify', \
 			'-O', 'test_cli/out.gff3']
 		with patch('sys.argv', testArgs):
@@ -729,6 +775,8 @@ class TestReader(unittest.TestCase):
 			'-D', out_dir, \
 			'-N', 'plain', \
 			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
 			'train', \
 			'-B', '4', \
 			'-A', self.gff3, \
@@ -755,6 +803,8 @@ class TestReader(unittest.TestCase):
 			'-D', out_dir, \
 			'-N', 'plain', \
 			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
 			'classify', \
 			'-O', '%s/out.gff3'%(out_dir)]
 		with patch('sys.argv', testArgs):
@@ -776,21 +826,24 @@ class TestReader(unittest.TestCase):
 			rmtree(out_dir)
 	def test_stateful_cli_noTEMD_01(self):
 		if not self.test_model: return
-		n, out_dir, lr, sl = '128', 'test_stateful_cli', '0.01', '10'
+		n, out_dir, lr, sl = '256', 'test_stateful_cli', '0.001', '10'
+		bsize, layers = '1', '1'
 		testArgs = ['teamRNN', \
 			'-R', self.fa, \
 			'-D', out_dir, \
 			'-N', 'plain', \
 			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
 			'-v', 'train', \
-			'-B', '3', \
+			'-B', bsize, \
 			'-A', self.gff3, \
 			'-E', '200', \
 			'-r', lr, \
-			'-l', '2', \
+			'-l', layers, \
 			'-L', sl, \
 			'-n', n, \
-			'--every', '50', \
+			'--every', '100', \
 			'--noTEMD', \
 			'--stateful', \
 			'-f']
@@ -805,7 +858,7 @@ class TestReader(unittest.TestCase):
 		#			break
 		self.assertTrue('Done' in splitOut[-2])
 		#for f in glob('test_cli/*'): print f
-		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_%sxlstm%s_stateful3_learn%s_drop0.h5'%(out_dir, sl, '2', n, lr)))
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
 	def test_stateful_cli_noTEMD_02(self):
 		if not self.test_model: return
@@ -815,6 +868,8 @@ class TestReader(unittest.TestCase):
 			'-D', out_dir, \
 			'-N', 'plain', \
 			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
 			'classify', \
 			'-O', '%s/out.gff3'%(out_dir)]
 		with patch('sys.argv', testArgs):

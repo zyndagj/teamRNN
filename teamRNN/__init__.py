@@ -80,6 +80,8 @@ def main():
 	parser.add_argument('-o', '--offset', metavar='INT', help='Number of bases to slide between windows [%(default)s]', default=1, type=int)
 	parser.add_argument('-Q', '--quality', metavar='INT', help='Input assembly quality [%(default)s]', default=-1, type=int)
 	parser.add_argument('-P', '--ploidy', metavar='INT', help='Input chromosome ploidy [%(default)s]', default=2, type=int)
+	parser.add_argument('--max_fill', metavar='INT', help='Maximum gap size to be filled [%(default)s]', default=50, type=int)
+	parser.add_argument('--min_feat', metavar='INT', help='Minimum feature size to be kept [%(default)s]', default=75, type=int)
 	parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
 	##############################################
 	# Training
@@ -235,6 +237,7 @@ def train(args):
 		for chrom in sorted(train_chroms):
 			history = LossHistory()
 			start = time()
+			if cached_args.stateful: M.model.reset_states()
 			M.model.fit(train_x[chrom], train_y[chrom], \
 				batch_size=model_batch, epochs=1, shuffle=False, \
 				callbacks=[history], verbose=0)
@@ -285,13 +288,15 @@ def train(args):
 	#### Write output #############################################
 	args.threshold = 0.5
 	args.output = os.path.join(args.directory, 'training_output.gff3')
+	args.raw_output = os.path.join(args.directory, 'training_output_raw.gff3')
 	#### Classify #################################################
 	OA = make_predictions(IS, M, args, cached_args, model_batch)
 	#### Write #####################################################
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Features need %.2f of the votes to be output"%(args.threshold))
 		logger.info("Writing %s"%(args.output))
-	OA.write_gff3(out_file=args.output, threshold=args.threshold)
+	OA.write_gff3(out_file=args.raw_output, threshold=args.threshold, min_size=0, max_fill_size=0)
+	OA.write_gff3(out_file=args.output, threshold=args.threshold, min_size=args.min_feat, max_fill_size=args.max_fill)
 	#### Shut Down #################################################
 	del M
 	if hvd:
@@ -353,7 +358,7 @@ def classify(args):
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Features need %.2f of the votes to be output"%(args.threshold))
 		logger.info("Writing %s"%(args.output))
-	OA.write_gff3(out_file=args.output, threshold=args.threshold)
+	OA.write_gff3(out_file=args.output, threshold=args.threshold, min_size=args.min_feat, max_fill_size=args.max_fill)
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Done")
 

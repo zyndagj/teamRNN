@@ -41,7 +41,7 @@ import h5py, os, sys, logging
 from time import time
 logger = logging.getLogger(__name__)
 import numpy as np
-from teamRNN.util import irange, iterdict, fivenum
+from teamRNN.util import irange, iterdict, fivenum, calcRegionBounds, bridge_array
 from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index, te_feature_names
 from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam_i2f
 from itertools import chain
@@ -226,12 +226,14 @@ class output_aggregator:
 				prec = str(tp/float(tp+fp))
 				oStr.append('%s, %i, %i, %i, %s, %s'%(name, tp, fp, fn, sen, prec))
 		return oStr
-	def write_gff3(self, out_file='', threshold=0.5):
+	def write_gff3(self, out_file='', threshold=0.5, min_size=0, max_fill_size=0):
 		total_feature_count = 0
 		out_gff3 = ['##gff-version   3']
 		if os.path.exists(out_file):
 			logger.info("Overwriting old %s"%(out_file))
 			os.remove(out_file)
+		if min_size or max_fill_size:
+			logger.info("Filling gaps <= %i and Removing |features| < %i"%(max_fill_size, min_size))
 		for chrom in sorted(self.chrom_dict.keys()):
 			chrom_len = self.chrom_dict[chrom]
 			features = []
@@ -244,7 +246,10 @@ class output_aggregator:
 				gtT_mask = vote_array >= threshold*self.feature_total_array[:,0]
 				gtZ_mask = vote_array > 0
 				mask = np.logical_and(gtT_mask, gtZ_mask)
-				bound_array = calcRegionBounds(mask)+1
+				if min_size or max_fill_size:
+					logger.debug("Filling gaps <= %i and Removing |features| < %i"%(max_fill_size, min_size))
+					bridge_array(mask, min_size, max_fill_size)
+				bound_array = calcRegionBounds(mask, inclusive=True)+1
 				for s,e in bound_array:
 					features.append((s,e,feat_index))
 			features.sort(key=itemgetter(0,1))
@@ -409,27 +414,6 @@ class MSE_interval:
 			out_file = os.path.join(self.out_dir, '%s_e%i_%s.tsv'%(name.lower(), epoch, chrom))
 			np.savetxt(out_file, (x,y), delimiter='\t')
 			logger.debug("Wrote %s"%(out_file))
-
-def calcRegionBounds(counter):
-	'''
-	Returns the new lower and upper bounds over overlapped regions.
-	Parameters
-	=============================
-	counter		Binary counter array
-	>>> calcRegionBounds(np.array([1,1,0,0,1,1,1,0,0,1,1]))
-	array([[ 0,  1],
-	       [ 4,  6],
-	       [ 9, 10]])
-	'''
-	d = np.diff(counter)
-	idx, = d.nonzero()
-	if counter[0]:
-		idx = np.r_[-1, idx]
-	if counter[-1]:
-		idx = np.r_[idx, counter.size-1]
-	idx.shape = (-1,2)
-	idx[:,0] += 1
-	return idx
 
 #def main():
 
