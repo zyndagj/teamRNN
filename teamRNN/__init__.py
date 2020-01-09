@@ -348,7 +348,7 @@ def classify(args):
 		save_dir=args.directory)
 	# See if there is a checkpoint to restore from
 	if not glob(M.save_file+"*"):
-		logger.error("No model to restore from")
+		logger.error("Could not find match for %s. No model to restore from."%(M.save_file))
 		sys.exit()
 	M.restore()
 	#print M.model.summary()

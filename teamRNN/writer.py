@@ -247,7 +247,7 @@ class output_aggregator:
 				gtZ_mask = vote_array > 0
 				mask = np.logical_and(gtT_mask, gtZ_mask)
 				if min_size or max_fill_size:
-					logger.debug("Filling gaps <= %i and Removing |features| < %i"%(max_fill_size, min_size))
+					#logger.debug("Filling gaps <= %i and Removing |features| < %i"%(max_fill_size, min_size))
 					bridge_array(mask, min_size, max_fill_size)
 				bound_array = calcRegionBounds(mask, inclusive=True)+1
 				for s,e in bound_array:
@@ -304,7 +304,7 @@ class MSE_interval:
 			self._add_array_value(chrom, s, e, mse)
 		s, e = cb[0][1], cb[-1][2]
 		fns = map(str,fivenum(mse_list))
-		logger.debug("%s:%i-%i contained the following MSE distribution [%s]"%(chrom, s, e, ', '.join(fns)))
+		#logger.debug("%s:%i-%i contained the following MSE distribution [%s]"%(chrom, s, e, ', '.join(fns)))
 	def _add_array_value(self, chrom, s, e, v):
 		if chrom not in self.mse_array_dict:
 			self._create_mse_array(chrom)
