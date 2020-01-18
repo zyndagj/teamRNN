@@ -78,6 +78,14 @@ def calcRegionBounds(bool_array, inclusive=False, null=0):
 		idx.shape = (-1, 2)
 	return idx
 
+def is_reverse(batch):
+	'''
+	Determines if a batch was generated from the
+	reverse strand
+	'''
+	assert(len(batch.shape) == 3)
+	return batch[0,0,1] > batch[0,1,1]
+
 def bridge_array(bool_array, min_size=1, max_gap_size=1):
 	'''
 	Fills small gaps and removes small classifications

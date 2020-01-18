@@ -201,14 +201,13 @@ class input_slicer:
 		else:
 			#log_time(startTimes, endTimes, time_categories)
 			return (coord, out_slice)
-	def chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1):
+	def chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=False, hvd_rank=0, hvd_size=1, stranded=False):
 		if hvd_size > 1:
 			my_batches = self.chrom_iter_len(chrom, seq_len, offset, batch_size, hvd_rank, hvd_size)
 			n_batches_list = [self.chrom_iter_len(chrom, seq_len, offset, batch_size, i, hvd_size) for i in range(hvd_size)]
 			max_batches = int(max(n_batches_list))
 			if hvd_rank == 0:
 				logger.debug("All work loads %s. Using %i for all ranks"%(str(n_batches_list), max_batches))
-		# TODO make this the same as genome_iter
 		chrom_len = self.FA.get_reference_length(chrom)
 		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
 		full_len = seq_len+(batch_size-1)*offset
@@ -286,7 +285,7 @@ class input_slicer:
 		#print "args: %s %i %i"%(str(coord), seq_len, batch_size)
 		#print "original: %s  return: %s"%(str(coord), str(ret))
 		return ret
-	def stateful_chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=5, hvd_rank=0, hvd_size=1):
+	def stateful_chrom_iter(self, chrom, seq_len=5, offset=1, batch_size=5, hvd_rank=0, hvd_size=1, stranded=False):
 		#print "seq_len: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, batch_size, hvd_size, hvd_rank)
 		chrom_len = self.FA.get_reference_length(chrom)
 		chrom_quality = self.RC.chrom_qualities[chrom] if self.quality == -1 else self.quality
@@ -311,12 +310,63 @@ class input_slicer:
 			rank_region_starts = starts[rank_start_inds]+iB*seq_len
 			if self.gff3_file:
 				c, x, y = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
-				yield (list(c), np.array(x), np.array(y))
+				npy = np.array(y)
+				#remove all predictions from reverse strand
+				if stranded: mask(npy, '-')
+				yield (list(c), np.array(x), npy)
 			else:
 				c, x = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
 				yield (list(c), np.array(x))
+		if stranded:
+			for iB in irange(n_batches-1,-1,-1):
+				rank_start_inds = range(contigs_per_rank*hvd_rank, contigs_per_rank*(hvd_rank+1))
+				rank_region_starts = starts[rank_start_inds]+iB*seq_len
+				if self.gff3_file:
+					c, x, y = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
+					npx, npy = map(np.array, (x,y))
+					npx = rev_comp(npx) # flip and comp x
+					mask(npy, '+') # mask forward prediction
+					rnpy = np.flip(npy, axis=1) # flip y
+					yield (list(c), npx, rnpy)
+				else:
+					c, x = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
+					npx = rev_comp(np.array(x)) # flip and comp x
+					yield (list(c), npx)
+				
 	def _get_region_map(self, cur, chrom, chrom_len, chrom_quality, seq_len):
 		return self._get_region(chrom, cur, chrom_len, chrom_quality, seq_len, print_region=False)
+
+def rev_comp(batch):
+	ret = batch.copy()
+	ret = np.flip(ret, axis=1)
+	mask = ret[:,:,0] != 4
+	ret[mask,0] = (ret[mask,0]+2)%4
+	return ret
+
+def mask(batch, mask_strand='-'):
+	n_feat = len(gff3_f2i)
+	half_feat = n_feat/2
+	if batch.shape[2] == len(gff3_f2i):
+		if mask_strand == '+':
+			batch[:,:,0:half_feat] = 0
+		if mask_strand == '-':
+			batch[:,:,half_feat:] = 0
+	elif batch.shape[2] == len(gff3_f2i)+2:
+		tef = [gff3_f2i['+'+fn] for fn in te_feature_names]
+		ter = [gff3_f2i['-'+fn] for fn in te_feature_names]
+		nzf = batch[:,:,0:half_feat] != 0
+		nzr = batch[:,:,half_feat:n_feat] != 0
+		nzft = np.any(batch[:,:,tef] != 0, axis=2)
+		nzrt = np.any(batch[:,:,ter] != 0, axis=2)
+		both_te = np.logical_and(nzft, nzrt)
+		if mask_strand == '-':
+			batch[:,:,half_feat:n_feat][nzr] = 0
+			batch[np.logical_xor(both_te, nzrt), -2:] = 0
+		if mask_strand == '+':
+			batch[:,:,0:half_feat][nzf] = 0
+			batch[np.logical_xor(both_te, nzft), -2:] = 0
+	else:
+		raise ValueError
 
 def slicer_init(fasta_file, meth_file, gff3_file, quality, ploidy, out_dim):
 	import os

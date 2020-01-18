@@ -16,6 +16,7 @@ from teamRNN import reader, constants, writer, model, util
 from pysam import FastaFile
 from shutil import rmtree
 import numpy as np
+from Meth5py import Meth5py
 try:
 	from unittest.mock import patch
 except:
@@ -34,6 +35,13 @@ class TestReader(unittest.TestCase):
 		self.test_model = True
 		self.n_epoch = 200
 		self.learning_rate = 0.01
+		m5 = Meth5py(self.mr1, self.fa, n_cores=1)
+		m5.close()
+		del m5
+		GI = reader.gff3_interval(self.gff3, force=True)
+		del GI
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
+		del IS
 	def tearDown(self):
 		## Runs after every test function ##
 		# Wipe log
@@ -111,6 +119,124 @@ class TestReader(unittest.TestCase):
 		FA = FastaFile(self.fa)
 		for chrom in FA.references:
 			self.assertEqual(RC.chrom_qualities[chrom], 3)
+	def test_rev_comp(self):
+		IS = reader.input_slicer(self.fa, self.mr1, stateful=True)
+		XL = [x for c,x in IS.stateful_chrom_iter('Chr1', seq_len=5, batch_size=2)]
+		#00222202033333021300
+		#AATTTTATACCCCCATGCAA
+		#11111 22222
+		#     11111 22222
+		RXL = map(reader.rev_comp, XL)
+		for xb, rxb in zip(XL, RXL):
+			self.assertTrue(np.all(xb[:,:,1:] == np.flip(rxb[:,:,1:], axis=1)))
+			self.assertFalse(np.all(xb[:,:,0] == np.flip(rxb[:,:,0], axis=1)))
+		self.assertTrue(np.all(RXL[0][0,:,0] == [0,0,0,2,2]))
+		self.assertTrue(np.all(RXL[0][1,:,0] == [1,1,2,0,2]))
+		self.assertTrue(np.all(RXL[1][0,:,0] == [1,2,0,2,0]))
+		self.assertTrue(np.all(RXL[1][1,:,0] == [0,2,1,1,1]))
+	def test_rev_comp_init_level(self):
+		IS = reader.input_slicer(self.fa, self.mr1, self.gff3, stateful=True)
+		func = IS.stateful_chrom_iter
+		c, xa_s, ya_s = map(np.vstack, zip(*func('Chr1', seq_len=5, batch_size=2, stranded=True)))
+		c, xal, yal = zip(*func('Chr1', seq_len=5, batch_size=2))
+		xa = np.vstack(xal)
+		ya = np.vstack(yal)
+		# Test size
+		self.assertEqual(xa_s.shape, (xa.shape[0]*2, xa.shape[1], xa.shape[2]))
+		self.assertEqual(ya_s.shape, (ya.shape[0]*2, ya.shape[1], ya.shape[2]))
+		# Test X
+		xa_s_fab = np.vstack((xa, reader.rev_comp(np.vstack(xal[::-1]))))
+		self.assertEqual(xa_s.shape, xa_s_fab.shape)
+		self.assertTrue(np.all(xa_s == xa_s_fab))
+		# Test Y
+		yaf = ya.copy()
+		reader.mask(yaf, '-')
+		yar = np.flip(np.vstack(yal[::-1]), axis=1)
+		reader.mask(yar, '+')
+		ya_s_fab = np.vstack((yaf, yar))
+		self.assertEqual(ya_s.shape, ya_s_fab.shape)
+		self.assertTrue(np.all(ya_s == ya_s_fab))
+	def test_is_reverse(self):
+		IS = reader.input_slicer(self.fa, self.mr1, stateful=True)
+		XL = [x for c,x in IS.stateful_chrom_iter('Chr1', seq_len=5, batch_size=2)]
+		#00222202033333021300
+		#AATTTTATACCCCCATGCAA
+		#11111 22222
+		#     11111 22222
+		RXL = map(reader.rev_comp, XL)
+		for xb, rxb in zip(XL, RXL):
+			self.assertFalse(util.is_reverse(xb))
+			self.assertTrue(util.is_reverse(rxb))
+	def test_mask_notemd(self):
+		def encode(arg_list):
+			fV, rV = arg_list
+			# [G, T]
+			# [+G, +T, -G, -T, MD1, MD2]
+			n_feat = len(constants.gff3_f2i)
+			ret = np.zeros(n_feat)
+			findex = {'G':constants.gff3_f2i['+gene'],'T':constants.gff3_f2i['+transposable_element']}
+			rindex = {'G':constants.gff3_f2i['-gene'],'T':constants.gff3_f2i['-transposable_element']}
+			if fV in findex: ret[findex[fV]] = 1
+			if rV in rindex: ret[rindex[rV]] = 1
+			return ret
+		seq1 = np.array(map(encode, zip('NNTT','GGGG')))
+		self.assertEqual(np.sum(seq1), 6)
+		self.assertEqual(seq1.shape, (4,66))
+		seq2 = np.array(map(encode, zip('NNTT','GTTG')))
+		self.assertEqual(np.sum(seq2), 6)
+		self.assertEqual(seq2.shape, (4,66))
+		batchf = np.stack((seq1, seq2))
+		self.assertEqual(batchf.shape, (2,4,66))
+		self.assertEqual(batchf.sum(), 12)
+		batchr = np.stack((seq1, seq2))
+		self.assertEqual(batchr.shape, (2,4,66))
+		self.assertEqual(batchr.sum(), 12)
+		reader.mask(batchf, '-')
+		self.assertEqual(batchf.shape, (2,4,66))
+		self.assertEqual(batchf.sum(), 4)
+		assert(np.all(batchf == np.stack((map(encode, zip('NNTT','NNNN')), \
+						map(encode, zip('NNTT','NNNN'))))))
+		reader.mask(batchr, '+')
+		self.assertEqual(batchr.shape, (2,4,66))
+		self.assertEqual(batchr.sum(), 8)
+		assert(np.all(batchr == np.stack((map(encode, zip('NNNN','GGGG')), \
+						map(encode, zip('NNNN','GTTG'))))))
+	def test_mask_temd(self):
+		def encode(arg_list):
+			fV, rV, MD1, MD2 = arg_list
+			# [G, T]
+			# [+G, +T, -G, -T, MD1, MD2]
+			n_feat = len(constants.gff3_f2i)+2
+			ret = np.zeros(n_feat)
+			findex = {'G':constants.gff3_f2i['+gene'],'T':constants.gff3_f2i['+transposable_element']}
+			rindex = {'G':constants.gff3_f2i['-gene'],'T':constants.gff3_f2i['-transposable_element']}
+			if fV in findex: ret[findex[fV]] = 1
+			if rV in rindex: ret[rindex[rV]] = 1
+			if 'T' in (fV, rV):
+				ret[-2:] = map(int, (MD1, MD2))
+			return ret
+		seq1 = np.array(map(encode, zip('NNTT','GGGG','0022','0033')))
+		self.assertEqual(np.sum(seq1), 6+10)
+		self.assertEqual(seq1.shape, (4,68))
+		seq2 = np.array(map(encode, zip('NNTT','GTTG','0444','0000')))
+		self.assertEqual(np.sum(seq2), 6+12)
+		self.assertEqual(seq2.shape, (4,68))
+		batchf = np.stack((seq1, seq2))
+		self.assertEqual(batchf.shape, (2,4,68))
+		self.assertEqual(batchf.sum(), 12+22)
+		batchr = np.stack((seq1, seq2))
+		self.assertEqual(batchr.shape, (2,4,68))
+		self.assertEqual(batchr.sum(), 12+22)
+		reader.mask(batchf, '-')
+		self.assertEqual(batchf.shape, (2,4,68))
+		self.assertEqual(batchf.sum(), 4+18)
+		assert(np.all(batchf == np.stack((map(encode, zip('NNTT','NNNN','0022','0033')), \
+						map(encode, zip('NNTT','NNNN','0044','0000'))))))
+		reader.mask(batchr, '+')
+		self.assertEqual(batchr.shape, (2,4,68))
+		self.assertEqual(batchr.sum(), 8+8)
+		assert(np.all(batchr == np.stack((map(encode, zip('NNNN','GGGG','0000','0000')), \
+						map(encode, zip('NNNN','GTTG','0440','0000'))))))
 	def test_l2b(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		iA = np.tile(np.arange(9).reshape((9,1)), (1,2))
@@ -207,7 +333,6 @@ class TestReader(unittest.TestCase):
 							EL.append(c)
 						CL = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
 							1, batch_size, hvd_rank, hvd_size)]
-			
 						#print CL
 						#print EL
 						for c,x in IS.stateful_chrom_iter('Chr1', seq_len, 1, batch_size, hvd_rank, hvd_size):
@@ -219,13 +344,52 @@ class TestReader(unittest.TestCase):
 						R2 = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
 							1, batch_size, 1, hvd_size)]
 						self.assertEqual(len(R1), len(R2))
+	def test_stranded_stateful_chrom_iter(self):
+		IS = reader.input_slicer(self.fa, self.mr1, stateful=True)
+		I = reader.input_slicer(self.fa, self.mr1)
+		chrom_len = 20
+		chrom_quality = I.RC.chrom_qualities['Chr1']
+		for seq_len in (2,5):
+			for batch_size in (1,3,4):
+				for hvd_size in (1,2):
+					for hvd_rank in range(0,hvd_size):
+						size, rank = hvd_size, hvd_rank
+						#print "seq_len: %i   batch_size: %i   hvd_size: %i   hvd_rank: %i"%(seq_len, batch_size, hvd_size, hvd_rank)
+						contigs_per_rank = int(batch_size/hvd_size)
+						if not contigs_per_rank and hvd_size > 1:
+							rank, size = 0, 1
+							contigs_per_rank = batch_size
+						max_contig_len = (2*chrom_len)/(batch_size+1)
+						n_batches = int(max_contig_len/seq_len)
+						starts = np.arange(batch_size)*(max_contig_len/2)
+						ends = starts+max_contig_len
+						EL = []
+						for iB in range(n_batches):
+							c = []
+							for iS in range(contigs_per_rank*rank, contigs_per_rank*(rank+1)):
+								region_start = starts[iS]+iB*seq_len
+								c.append(I._get_region('Chr1', region_start, chrom_len, chrom_quality, seq_len)[0])
+							EL.append(c)
+						CL = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, hvd_rank, hvd_size, stranded=True)]
+						#print CL
+						#print EL
+						for c,x in IS.stateful_chrom_iter('Chr1', seq_len, 1, batch_size, hvd_rank, hvd_size, stranded=True):
+							self.assertEqual(x.shape, (contigs_per_rank, seq_len, 10))
+						self.assertEqual(CL, EL+EL[::-1])
+					if hvd_size == 2:
+						R1 = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, 0, hvd_size)]
+						R2 = [c for c,x in IS.stateful_chrom_iter('Chr1', seq_len, \
+							1, batch_size, 1, hvd_size)]
+						self.assertEqual(len(R1), len(R2))
 	def test_input_iter(self):
 		I = reader.input_slicer(self.fa, self.mr1)
 		IL = list(I.genome_iter())
 		#for c, x in IL:
 		#	print(''.join(map(lambda i: constants.index2base[i[0]], x)))
-		self.assertTrue(np.allclose(IL[0][1][0][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
-		self.assertTrue(np.allclose(IL[9][1][0][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
+		self.assertTrue(np.allclose(IL[0][1][0][0], [constants.base2index['A'], 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.allclose(IL[9][1][0][0], [constants.base2index['C'], 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
 		self.assertEqual(len(IL), 16+16)
 	def test_input_iter_10(self):
 		I = reader.input_slicer(self.fa, self.mr1)
@@ -242,7 +406,7 @@ class TestReader(unittest.TestCase):
 		#Chr1    test    CDS     3       10      .       +       .       ID=team_0
 		#Chr1    test    gene    3       10      .       +       .       ID=team_1
 		#Chr1    test    exon    4       7       .       +       .       ID=team_2
-		#Chr1    test    transposable_element    11      15      .       -       .       ID=team_3;Order=LTR;Superfamily=Gypsy
+		#Chr1    test    transposable_element    10      15      .       -       .       ID=team_3;Order=LTR;Superfamily=Gypsy
 		#Chr2    test    CDS     2       15      .       -       .       ID=team_4
 		#Chr2    test    gene    2       15      .       -       .       ID=team_5
 		#Chr2    test    exon    3       7       .       -       .       ID=team_6
@@ -253,9 +417,9 @@ class TestReader(unittest.TestCase):
 		tmp[2:10,constants.gff3_f2i['+CDS']] = 1
 		tmp[2:10,constants.gff3_f2i['+gene']] = 1
 		tmp[3:7,constants.gff3_f2i['+exon']] = 1
-		tmp[10:15,constants.gff3_f2i['-transposable_element']] = 1
-		tmp[10:15,len(constants.gff3_f2i)] = constants.te_order_f2i['ltr']
-		tmp[10:15,len(constants.gff3_f2i)+1] = constants.te_sufam_f2i['gypsy']
+		tmp[9:15,constants.gff3_f2i['-transposable_element']] = 1
+		tmp[9:15,len(constants.gff3_f2i)] = constants.te_order_f2i['ltr']
+		tmp[9:15,len(constants.gff3_f2i)+1] = constants.te_sufam_f2i['gypsy']
 		self.assertEqual(res1.shape, tmp.shape)
 		for i in range(15):
 			if not np.array_equal(res1[i], tmp[i]):
@@ -272,12 +436,12 @@ class TestReader(unittest.TestCase):
 		self.assertTrue(np.array_equal(res2, tmp))
 	def test_input_iter_gff3(self):
 		I = reader.input_slicer(self.fa, self.mr1, self.gff3)
-		XYL = list(I.genome_iter())
+		XYL = list(I.genome_iter()) 
 		self.assertEqual(len(XYL), (20-5+1)*2)
-		self.assertTrue(np.allclose(XYL[0][1][0][0], [0, 1.0/20, 0,0,0,0,0,0, 2,3]))
-		self.assertTrue(np.allclose(XYL[9][1][0][0], [1, 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
+		self.assertTrue(np.allclose(XYL[0][1][0][0], [constants.base2index['A'], 1.0/20, 0,0,0,0,0,0, 2,3]))
+		self.assertTrue(np.allclose(XYL[9][1][0][0], [constants.base2index['C'], 10.0/20, 0,0,0,0,10.0/20,20, 2,3]))
 		self.assertTrue(XYL[9][2][0][0][constants.gff3_f2i['+CDS']], 1)
-		for i in range(10, 15):
+		for i in range(9, 15):
 			self.assertEqual(XYL[i][2][0][0][constants.gff3_f2i['-transposable_element']], 1)
 			self.assertEqual(XYL[i][2][0][0][len(constants.gff3_f2i)], 3)
 			self.assertEqual(XYL[i][2][0][0][len(constants.gff3_f2i)+1], 7)
@@ -285,7 +449,7 @@ class TestReader(unittest.TestCase):
 		self.assertEqual(sum(XYL[1][2][0][0]), 0)
 		self.assertEqual(sum(XYL[16][2][0][0]), 0)
 		self.assertEqual(sum(XYL[8][2][0][2]), 11)
-		self.assertEqual(sum(XYL[8][2][0][1]), 2)
+		self.assertEqual(sum(XYL[8][2][0][1]), 13)
 		self.assertEqual(len(XYL), 16+16)
 	def test_mse_interval_midpoint(self):
 		MI = writer.MSE_interval(self.fa, 'mse_tmp', 0)
@@ -463,6 +627,24 @@ class TestReader(unittest.TestCase):
 			for i, region in enumerate(c):
 				c_region, x_region = I._get_region(region[0], region[1], 20, 3, 5)
 				self.assertTrue(np.all(x_region == x[i]))
+			if IS.gff3_file:
+				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
+	def test_batch_stateful_stranded(self):
+		IS = reader.input_slicer(self.fa, self.mr1, stateful=True)
+		I = reader.input_slicer(self.fa, self.mr1)
+		BL = list(IS.stateful_chrom_iter(chrom='Chr1', seq_len=5, batch_size=2, stranded=True))
+		self.assertEqual(len(BL), 2*2)
+		for out in BL:
+			self.assertEqual(len(out), 3 if IS.gff3_file else 2)
+			if IS.gff3_file: c,x,y = out
+			else: c,x = out
+			self.assertEqual(np.array(x).shape, (2, 5, 10))
+			for i, region in enumerate(c):
+				c_region, x_region = I._get_region(region[0], region[1], 20, 3, 5)
+				if util.is_reverse(x):
+					self.assertTrue(np.all(reader.rev_comp(x_region.reshape(1,5,10))[0] == x[i]))
+				else:
+					self.assertTrue(np.all(x_region == x[i]))
 			if IS.gff3_file:
 				self.assertEqual(np.array(out[2]).shape, (4, 5, len(constants.gff3_f2i)))
 	def test_batch_10(self):
@@ -737,7 +919,7 @@ class TestReader(unittest.TestCase):
 		splitOut = output.split('\n')
 		self.assertTrue('Done' in splitOut[-2])
 		#for f in glob('test_cli/*'): print f
-		self.assertTrue(os.path.exists('test_cli/plain_s15x10_o68_1xbilstm60_merge-concat_statefulF_learn%s_drop0.h5'%(str(self.learning_rate))))
+		self.assertTrue(os.path.exists('test_cli/plain_s15x10_o68_unstranded_1xbilstm60_merge-concat_statefulF_learn%s_drop0.h5'%(str(self.learning_rate))))
 		self.assertTrue(os.path.exists('test_cli/config.pkl'))
 	def test_train_cli_02(self):
 		if not self.test_model: return
@@ -793,7 +975,7 @@ class TestReader(unittest.TestCase):
 		splitOut = output.split('\n')
 		self.assertTrue('Done' in splitOut[-2])
 		#for f in glob('test_cli/*'): print f
-		self.assertTrue(os.path.exists('%s/plain_s%sx10_o68_1xlstm80_stateful4_learn%s_drop0.h5'%(out_dir, sl, lr)))
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o68_unstranded_1xlstm80_stateful4_learn%s_drop0.h5'%(out_dir, sl, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
 	def test_stateful_cli_02(self):
 		if not self.test_model: return
@@ -858,7 +1040,7 @@ class TestReader(unittest.TestCase):
 		#			break
 		self.assertTrue('Done' in splitOut[-2])
 		#for f in glob('test_cli/*'): print f
-		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_unstranded_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
 	def test_stateful_cli_noTEMD_02(self):
 		if not self.test_model: return
@@ -888,7 +1070,7 @@ class TestReader(unittest.TestCase):
 		#Chr1    test    CDS     3       10      .       +       .       ID=team_0
 		#Chr1    test    gene    3       10      .       +       .       ID=team_1
 		#Chr1    test    exon    4       7       .       +       .       ID=team_2
-		#Chr1    test    transposable_element    11      15      .       -       .       ID=team_3;Order=LTR;Superfamily=Gypsy
+		#Chr1    test    transposable_element    10      15      .       -       .       ID=team_3;Order=LTR;Superfamily=Gypsy
 		#Chr2    test    CDS     2       15      .       -       .       ID=team_4
 		#Chr2    test    gene    2       15      .       -       .       ID=team_5
 		#Chr2    test    exon    3       7       .       -       .       ID=team_6
@@ -899,7 +1081,7 @@ class TestReader(unittest.TestCase):
 		tmp[2:10,constants.gff3_f2i['+CDS']] = 1
 		tmp[2:10,constants.gff3_f2i['+gene']] = 1
 		tmp[3:7,constants.gff3_f2i['+exon']] = 1
-		tmp[10:15,constants.gff3_f2i['-transposable_element']] = 1
+		tmp[9:15,constants.gff3_f2i['-transposable_element']] = 1
 		self.assertEqual(res1.shape, tmp.shape)
 		for i in range(15):
 			if not np.array_equal(res1[i], tmp[i]):
@@ -914,6 +1096,61 @@ class TestReader(unittest.TestCase):
 		tmp[2:7,constants.gff3_f2i['-exon']] = 1
 		tmp[8:14,constants.gff3_f2i['-exon']] = 1
 		self.assertTrue(np.array_equal(res2, tmp))
+	def test_stateful_cli_noTEMD_stranded_01(self):
+		if not self.test_model: return
+		n, out_dir, lr, sl = '256', 'test_stateful_cli', '0.001', '10'
+		bsize, layers = '1', '1'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
+			'-v', 'train', \
+			'-B', bsize, \
+			'-A', self.gff3, \
+			'-E', '200', \
+			'-r', lr, \
+			'-l', layers, \
+			'-L', sl, \
+			'-n', n, \
+			'--every', '100', \
+			'--noTEMD', \
+			'--stateful', \
+			'--stranded', \
+			'-f']
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		self.assertTrue('Done' in splitOut[-2])
+		#for f in glob('test_cli/*'): print f
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_stranded_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
+		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
+	def test_stateful_cli_noTEMD_stranded_02(self):
+		if not self.test_model: return
+		out_dir = 'test_stateful_cli'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
+			'classify', \
+			'-O', '%s/out.gff3'%(out_dir)]
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		#for so in splitOut: print so
+		self.assertTrue('Done' in splitOut[-2])
+		self.assertTrue(os.path.exists('%s/out.gff3'%(out_dir)))
+		OF = open('%s/out.gff3'%(out_dir),'r').readlines()
+		self._compare_against_file(OF, self.gff3, True)
+		if os.path.exists(out_dir):
+			rmtree(out_dir)
 
 def find_max(seq_len, offset, batch_size, hvd_size, chrom_len=20):
 	full_len = seq_len+(batch_size-1)*offset

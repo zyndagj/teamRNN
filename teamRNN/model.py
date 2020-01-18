@@ -67,7 +67,8 @@ class sleight_model:
 	def __init__(self, name, n_inputs=1, n_steps=50, n_outputs=1, n_neurons=20, n_layers=1, \
 		 learning_rate=0.001, dropout=0, cell_type='rnn', reg_kernel=False, reg_bias=False, \
 		 reg_activity=False, l1=0, l2=0, bidirectional=False, merge_mode='concat', \
-		 stateful=False, hidden_list=[], conv=False, batchN=False, noTEMD=False, save_dir='.'):
+		 stateful=False, hidden_list=[], conv=False, batchN=False, noTEMD=False, \
+		 stranded=False, save_dir='.'):
 		self.name = name # Name of the model
 		self.n_inputs = n_inputs # Number of input features
 		self.n_outputs = n_outputs # Number of outputs
@@ -81,6 +82,7 @@ class sleight_model:
 		self.conv = conv
 		self.bn = batchN
 		self.noTEMD = noTEMD
+		self.stranded = stranded
 		# https://keras.io/regularizers/
 		self.reg_kernel = reg_kernel # Use kernel regularization
 		self.reg_bias = reg_bias # Use bias regularization
@@ -99,7 +101,6 @@ class sleight_model:
 		self.hidden_list = hidden_list # List of hidden layer sizes
 		# Holder variable for stateful model test
 		self.test = False
-		# TODO remake this name
 		self.param_name = self._gen_name()
 		if save_dir[0] == '/':
 			self.save_dir = save_dir
@@ -222,6 +223,7 @@ class sleight_model:
 	def _gen_name(self):
 		out_name = "%s_s%ix%i_o%i"%(self.name, self.n_steps, self.n_inputs, self.n_outputs)
 		cell_prefix = 'bi' if self.bidirectional else ''
+		out_name += "_%s"%("stranded" if self.stranded else "unstranded")
 		out_name += "_%ix%s%s%i"%(self.n_layers, cell_prefix, self.cell_type, self.n_neurons)
 		if cell_prefix:
 			out_name += '_merge-%s'%(str(self.merge_mode))

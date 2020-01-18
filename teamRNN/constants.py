@@ -36,7 +36,7 @@
 ###############################################################################
 
 # Pulled from all GFF3 files
-features = ['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'antisense_RNA', 'antisense_lncRNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_exon', 'pseudogenic_tRNA', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene', 'transposon_fragment', 'uORF',]
+features = ['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'antisense_RNA', 'antisense_lncRNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_exon', 'pseudogenic_tRNA', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene', 'transposon_fragment', 'uORF']
 contexts = ('CG','CHG','CHH')
 strands = ('+', '-')
 
@@ -60,8 +60,32 @@ te_sufam_i2f = list(superfamilies)
 #te_cf_i2f = {i:v for i,v in enumerate(classes)}
 
 # https://github.com/zyndagj/teamRNN#numerical-mapping-key---016
-bases = 'ACGTURYKMSWBDHVN-'
+# Nucleotide A G T C N
+# Numerical  0 1 2 3 4
+
+# Nucleotide counts in Araport 11
+## A 38223602
+#C 21551439
+#D 1
+#G 21528650
+#K 63
+#M 84
+#N 185738
+#R 47
+#S 34
+#T 38177852
+#W 144
+#Y 96
+# Only {A,G,T,C} were kept due to low frequency of other bases, and will not be learned by model
+# Complement algorithm
+#0 A T  0 > 2 (0+2) mod 4 = 2
+#1 G C  1 > 3 (1+2) mod 4 = 3
+#2 T A  2 > 0 (2+2) mod 4 = 0
+#3 C G  3 > 1 (3+2) mod 4 = 1
+bases = 'AGTCN'
+ignored_bases = 'URYKMSWBDHV-'
 base2index = {b:i for i,b in enumerate(bases)}
+base2index.update({b:len(bases)-1 for b in ignored_bases})
 index2base = bases
 
 # Process configuration

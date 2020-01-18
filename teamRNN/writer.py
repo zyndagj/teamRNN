@@ -41,7 +41,7 @@ import h5py, os, sys, logging
 from time import time
 logger = logging.getLogger(__name__)
 import numpy as np
-from teamRNN.util import irange, iterdict, fivenum, calcRegionBounds, bridge_array
+from teamRNN.util import irange, iterdict, fivenum, calcRegionBounds, bridge_array, is_reverse
 from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index, te_feature_names
 from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam_i2f
 from itertools import chain
@@ -57,9 +57,10 @@ class output_aggregator:
 	>>> OA.vote(chrom, s, e, out_array)
 	>>> OA.write_gff3()
 	'''
-	def __init__(self, fasta_file, noTEMD=False, h5_file='tmp_vote.h5'):
+	def __init__(self, fasta_file, noTEMD=False, h5_file='tmp_vote.h5', stranded=False):
 		self.fasta_file = fasta_file
 		self.noTEMD = noTEMD
+		self.stranded = stranded
 		with FastaFile(fasta_file) as FA:
 			self.chrom_dict = {c:FA.get_reference_length(c) for c in FA.references}
 		self.cur_chrom = ''
@@ -130,7 +131,7 @@ class output_aggregator:
 			self.te_sufam_tp = np.zeros(n_sufam_ids)
 			self.te_sufam_fn = np.zeros(n_sufam_ids)
 			self.te_sufam_fp = np.zeros(n_sufam_ids)
-	def vote(self, chrom, start, end, array, overwrite=False):
+	def vote(self, chrom, start, end, array, overwrite=False, reverse=False):
 		#print "VOTE:", chrom, start, end, np.nonzero(array)
 		# Split the array
 		if not self.noTEMD:
@@ -139,10 +140,18 @@ class output_aggregator:
 			te_sufam_array = array[:,-1]
 		else:
 			assert(array.shape[1] == len(gff3_i2f))
-		feature_array = array[:,:len(gff3_i2f)]
+		n_feat = len(gff3_i2f)
+		half_feat = n_feat/2
+		assert(2*half_feat == n_feat)
+		if self.stranded:
+			if not reverse:
+				feature_array = array[:,:half_feat]
+			else:
+				feature_array = array[::-1,half_feat:n_feat]
+		else:
+			feature_array = array[:,:len(gff3_i2f)]
 		# Load the current chromosome arrays
-		if self.cur_chrom != chrom:
-			self._load_arrays(chrom)
+		if self.cur_chrom != chrom: self._load_arrays(chrom)
 		# Track features
 		#print "BEFORE", self.feature_total_array[start:end].flatten()
 		if overwrite:
@@ -152,9 +161,21 @@ class output_aggregator:
 		#print "AFTER", self.feature_total_array[start:end].flatten()
 		if np.sum(feature_array):
 			if overwrite:
-				self.feature_vote_array[start:end] = feature_array
+				if self.stranded:
+					if not reverse:
+						self.feature_vote_array[start:end,:half_feat] = feature_array
+					else:
+						self.feature_vote_array[start:end,half_feat:n_feat] = feature_array
+				else:
+					self.feature_vote_array[start:end] = feature_array
 			else:
-				self.feature_vote_array[start:end] += feature_array
+				if self.stranded:
+					if not reverse:
+						self.feature_vote_array[start:end,:half_feat] += feature_array
+					else:
+						self.feature_vote_array[start:end,half_feat:n_feat] += feature_array
+				else:
+					self.feature_vote_array[start:end] += feature_array
 		if not self.noTEMD:
 			# Track te class/family
 			if sum(te_order_array):
@@ -243,11 +264,13 @@ class output_aggregator:
 			logger.debug("Feature total row sums: %s"%(str(list(self.feature_total_array.sum(axis=0)))))
 			for feat_index in gff3_i2f.keys():
 				vote_array = self.feature_vote_array[:,feat_index]
-				gtT_mask = vote_array >= threshold*self.feature_total_array[:,0]
+				if self.stranded:
+					gtT_mask = vote_array >= threshold*self.feature_total_array[:,0]/2.0
+				else:
+					gtT_mask = vote_array >= threshold*self.feature_total_array[:,0]
 				gtZ_mask = vote_array > 0
 				mask = np.logical_and(gtT_mask, gtZ_mask)
 				if min_size or max_fill_size:
-					#logger.debug("Filling gaps <= %i and Removing |features| < %i"%(max_fill_size, min_size))
 					bridge_array(mask, min_size, max_fill_size)
 				bound_array = calcRegionBounds(mask, inclusive=True)+1
 				for s,e in bound_array:
@@ -302,8 +325,8 @@ class MSE_interval:
 			#print c, y, yp, mse
 			mse_list.append(mse)
 			self._add_array_value(chrom, s, e, mse)
-		s, e = cb[0][1], cb[-1][2]
-		fns = map(str,fivenum(mse_list))
+		#s, e = cb[0][1], cb[-1][2]
+		#fns = map(str,fivenum(mse_list))
 		#logger.debug("%s:%i-%i contained the following MSE distribution [%s]"%(chrom, s, e, ', '.join(fns)))
 	def _add_array_value(self, chrom, s, e, v):
 		if chrom not in self.mse_array_dict:
