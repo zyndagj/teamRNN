@@ -94,6 +94,7 @@ def main():
 	parser_train.add_argument('-L', '--sequence_length', metavar="INT", help='Length of sequence used for classification [%(default)s]', default=500, type=int)
 	parser_train.add_argument('-n', '--neurons', metavar="INT", help='Number of neurons in each RNN/LSTM cell [%(default)s]', default=100, type=int)
 	parser_train.add_argument('-l', '--layers', metavar="INT", help='Number of layers of RNN/LSTM cells [%(default)s]', default=1, type=int)
+	parser_train.add_argument('--residual', metavar="INT", help='Number residual RNN blocks [%(default)s]', default=0, type=int)
 	parser_train.add_argument('-r','--learning_rate', metavar="FLOAT", help='Learning rate of the optimizer [%(default)s]', default=0.001, type=float)
 	parser_train.add_argument('-d', '--dropout', metavar="FLOAT", help='Dropout rate of the model [%(default)s]', default=0, type=float)
 	cell_types = ('lstm', 'rnn', 'gru')
@@ -195,6 +196,7 @@ def train(args):
 		n_outputs = calc_n_outputs(args, cached_args), \
 		n_neurons = cached_args.neurons, \
 		n_layers = cached_args.layers, \
+		res_blocks = cached_args.residual, \
 		learning_rate = cached_args.learning_rate, \
 		dropout = cached_args.dropout, \
 		cell_type = cached_args.cell_type, \
@@ -386,6 +388,7 @@ def classify(args):
 		n_outputs = calc_n_outputs(args, cached_args), \
 		n_neurons = cached_args.neurons, \
 		n_layers = cached_args.layers, \
+		res_blocks = cached_args.residual, \
 		learning_rate = cached_args.learning_rate, \
 		dropout = cached_args.dropout, \
 		cell_type = cached_args.cell_type, \

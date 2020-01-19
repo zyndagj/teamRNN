@@ -47,12 +47,13 @@ tf.logging.set_verbosity(tf.logging.ERROR)
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.client import device_lib
 from tensorflow.keras.backend import set_session, clear_session, set_floatx, set_epsilon
-from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed, GRU, CuDNNGRU, Conv1D, BatchNormalization, MaxPooling1D
+from tensorflow.keras.models import load_model, Sequential, Model
+from tensorflow.keras.layers import Bidirectional, LSTM, SimpleRNN, Dense, CuDNNLSTM, Dropout, TimeDistributed, GRU, CuDNNGRU, Conv1D, BatchNormalization, MaxPooling1D, Input, concatenate
 from tensorflow.keras.regularizers import l1, l2, l1_l2
 from tensorflow.keras.optimizers import RMSprop, Adam, SGD
 from tensorflow.keras.losses import BinaryCrossentropy
 from tensorflow.keras.metrics import categorical_accuracy
+from tensorflow.keras.utils import plot_model
 try:
 	import horovod.tensorflow.keras as hvd
 	#hvd.init() # Only need to do this once
@@ -68,7 +69,7 @@ class sleight_model:
 		 learning_rate=0.001, dropout=0, cell_type='rnn', reg_kernel=False, reg_bias=False, \
 		 reg_activity=False, l1=0, l2=0, bidirectional=False, merge_mode='concat', \
 		 stateful=False, hidden_list=[], conv=False, batchN=False, noTEMD=False, \
-		 stranded=False, save_dir='.'):
+		 stranded=False, res_blocks=0, save_dir='.'):
 		self.name = name # Name of the model
 		self.n_inputs = n_inputs # Number of input features
 		self.n_outputs = n_outputs # Number of outputs
@@ -83,6 +84,7 @@ class sleight_model:
 		self.bn = batchN
 		self.noTEMD = noTEMD
 		self.stranded = stranded
+		self.res_blocks = res_blocks
 		# https://keras.io/regularizers/
 		self.reg_kernel = reg_kernel # Use kernel regularization
 		self.reg_bias = reg_bias # Use bias regularization
@@ -107,6 +109,7 @@ class sleight_model:
 		else:
 			self.save_dir = os.path.join(os.getcwd(), save_dir)
 		self.save_file = os.path.join(self.save_dir, '%s.h5'%(self.param_name))
+		if not os.path.exists(self.save_dir): os.makedirs(self.save_dir)
 		#self.graph = tf.Graph() # Init graph
 		#logger.debug("Created graph")
 		######################################
@@ -162,45 +165,53 @@ class sleight_model:
 		else:
 			self._compile_graph(self.model, 'mse', 'adam')
 		# Done
-	def _conv_layer(self):
-		if self.stateful:
-			logger.debug("Added stateful Conv1D")
-			bis = (self.stateful, self.n_steps, self.n_inputs)
-			return Conv1D(self.n_neurons, self.conv, strides=1, \
-				batch_input_shape = bis, activation = 'relu', padding='same')
-		else:
-			logger.debug("Added Conv1D")
-			bis = (self.n_steps, self.n_inputs)
-			return Conv1D(self.n_neurons, self.conv, strides=1, \
-				input_shape = bis, activation = 'relu', padding='same')
 	def _build_graph(self, test=False):
-		model = Sequential()
+		#model = Sequential()
+		# Construct input
+		if self.stateful:
+			inputs = Input(batch_shape=(self.stateful, self.n_steps, self.n_inputs))
+		else:
+			inputs = Input(shape=(self.n_steps, self.n_inputs))
+		nexti = inputs
 		logger.debug("Creating %i %slayers with %s%% dropout after each layer"%(self.n_layers, "bidirectional " if self.bidirectional else "", self.dropout))
 		if self.bidirectional:
 			logger.debug("Bidirectional layers will be merged with %s"%(self.merge_mode))
-		if self.conv: model.add(self._conv_layer)
-		#if self.maxpool: model.add(MaxPooling1D(pool_size=self.maxpool, strides=1, padding="same"))
-		if self.bn: model.add(BatchNormalization())
-		for i in range(self.n_layers):
-			I = i+1 if self.conv else i
-			model.add(self._gen_rnn_layer(I, test))
-			if self.bn: model.add(BatchNormalization())
-			# Dropout is added at the cell level
-			if self.dropout and self.gpu:
-				logger.debug("Adding dropout layer")
-				model.add(Dropout(self.dropout))
-		# Handel hidden layers
+		# CNN
+		if self.conv:
+			nexti = Conv1D(self.n_neurons, self.conv, strides=1, \
+				activation='relu', padding='same')(nexti)
+			logger.debug("Added Conv1D")
+			if self.bn: nexti = BatchNormalization()(nexti)
+		# RNN layers
+		nexti = self._rnn_block(nexti)
+		# Residual RNN blocks
+		if self.res_blocks:
+			nexti = concatenate([inputs, nexti], axis=-1)
+			for j in range(self.res_blocks-1):
+				nexti = self._rnn_block(nexti)
+				nexti = concatenate([inputs, nexti], axis=-1)
+		# Handle hidden layers
 		if self.hidden_list and self.hidden_list[0] > 0:
 			logger.debug("Appending %s TimeDistributed hidden layers"%(str(self.hidden_list)))
 		for hidden_neurons in self.hidden_list:
 			if hidden_neurons > 0:
-				#model.add(TimeDistributed(Dense(hidden_neurons, activation='relu')))
-				model.add(TimeDistributed(Dense(hidden_neurons, activation='tanh')))
+				nexti = TimeDistributed(Dense(hidden_neurons, activation='tanh'))(nexti)
+				if self.bn: nexti = BatchNormalization()(nexti)
 		# Final
 		act = 'sigmoid' if self.noTEMD else 'linear'
 		logger.debug("Last layer will have %s activation"%(act))
-		model.add(TimeDistributed(Dense(self.n_outputs, activation=act)))
+		output = TimeDistributed(Dense(self.n_outputs, activation=act))(nexti)
+		model = Model(inputs=inputs, outputs=output)
 		return model
+	def _rnn_block(self, nexti):
+		for i in range(self.n_layers):
+			nexti = self._gen_rnn_layer()(nexti)
+			if self.bn: nexti = BatchNormalization()(nexti)
+			# Dropout is added at the cell level
+			if self.dropout and self.gpu:
+				logger.debug("Adding dropout layer for GPU")
+				nexti = Dropout(self.dropout)(nexti)
+		return nexti
 	def _compile_graph(self, model, loss_func='mse', opt_func='adam'):
 		loss_functions = {'mse':'mean_squared_error', \
 				'msle':'mean_squared_logarithmic_error', \
@@ -220,6 +231,7 @@ class sleight_model:
 		# compile
 		model.compile(loss=loss_functions[loss_func], optimizer=opt, metrics=['accuracy'])
 		#model.summary()
+		plot_model(model, to_file=os.path.join(self.save_dir, '%s.png'%(self.param_name)))
 	def _gen_name(self):
 		out_name = "%s_s%ix%i_o%i"%(self.name, self.n_steps, self.n_inputs, self.n_outputs)
 		cell_prefix = 'bi' if self.bidirectional else ''
@@ -248,62 +260,23 @@ class sleight_model:
 		if self.hidden_list:
 			out_name += '_'+'h'.join(map(str, self.hidden_list))
 		return out_name
-	def _gen_rnn_layer(self, num=0, test=False):
+	def _gen_rnn_layer(self, test=False):
 		# I may need to modify this for "use_bias"
-		if num == 0:
-			input_shape = (self.n_steps, self.n_inputs)
-			if self.bidirectional:
-				if self.stateful:
-					#sys.exit("Should never get here")
-					bis = (self.stateful, self.n_steps, self.n_inputs)
-					return Bidirectional(self._gen_cell_layer(num), \
-						merge_mode=self.merge_mode, batch_input_shape=bis)
-				return Bidirectional(self._gen_cell_layer(num+1), \
-					merge_mode=self.merge_mode, input_shape=input_shape)
-			else:
-				return self._gen_cell_layer(num, test)
+		if self.bidirectional:
+			return Bidirectional(self._gen_cell_layer(test), merge_mode=self.merge_mode)
 		else:
-			if self.bidirectional:
-				return Bidirectional(self._gen_cell_layer(num, test), merge_mode=self.merge_mode)
-			else:
-				return self._gen_cell_layer(num, test)
-	def _gen_cell_layer(self, num=0, test=False):
+			return self._gen_cell_layer(test)
+	def _gen_cell_layer(self, test=False):
 		cell_func = self.cell_options[self.cell_type]
-		input_shape = (None, None)
-		if num == 0:
-			input_shape = (self.n_steps, self.n_inputs)
-		if self.stateful and not self.bidirectional:
-			if num:
-				bis = (None, None, None)
-			else:
-				if test:
-					logger.debug("Setting testing batch size to 1")
-					bis = (1, self.n_steps, self.n_inputs)
-				else:
-					bis = (self.stateful, self.n_steps, self.n_inputs)
-			if not self.gpu:
-				return cell_func(self.n_neurons, return_sequences=True, \
-					kernel_regularizer=self._gen_reg('kernel'), \
-					bias_regularizer=self._gen_reg('bias'), \
-					activity_regularizer=self._gen_reg('activity'), \
-					stateful=bool(self.stateful), implementation=2, \
-					batch_input_shape=bis, dropout=self.dropout)
-			else:
-				return cell_func(self.n_neurons, return_sequences=True, \
-					kernel_regularizer=self._gen_reg('kernel'), \
-					bias_regularizer=self._gen_reg('bias'), \
-					activity_regularizer=self._gen_reg('activity'), \
-					stateful=bool(self.stateful), \
-					batch_input_shape=bis)
 		if not self.gpu:
-			return cell_func(self.n_neurons, return_sequences=True, input_shape=input_shape, \
+			return cell_func(self.n_neurons, return_sequences=True, \
 				kernel_regularizer=self._gen_reg('kernel'), \
 				bias_regularizer=self._gen_reg('bias'), \
 				activity_regularizer=self._gen_reg('activity'), \
 				implementation=2, \
 				stateful=bool(self.stateful), dropout=self.dropout)
 		else:
-			return cell_func(self.n_neurons, return_sequences=True, input_shape=input_shape, \
+			return cell_func(self.n_neurons, return_sequences=True, \
 				kernel_regularizer=self._gen_reg('kernel'), \
 				bias_regularizer=self._gen_reg('bias'), \
 				activity_regularizer=self._gen_reg('activity'), \
