@@ -21,6 +21,7 @@ try:
 	from unittest.mock import patch
 except:
 	from mock import patch
+from glob import glob
 
 class TestReader(unittest.TestCase):
 	def setUp(self):
@@ -47,6 +48,7 @@ class TestReader(unittest.TestCase):
 		# Wipe log
 		logStream.truncate(0)
 		if os.path.exists('mse_tmp'): rmtree('mse_tmp')
+		map(os.remove, glob('*_s*png'))
 		## Runs after every test function ##
 	def _compare_against_file(self, out_lines, in_file, noTEMD=False):
 		self.assertTrue(os.path.exists(in_file))
@@ -1129,6 +1131,63 @@ class TestReader(unittest.TestCase):
 		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_stranded_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
 	def test_stateful_cli_noTEMD_stranded_02(self):
+		if not self.test_model: return
+		out_dir = 'test_stateful_cli'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
+			'classify', \
+			'-O', '%s/out.gff3'%(out_dir)]
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		splitOut = output.split('\n')
+		#for so in splitOut: print so
+		self.assertTrue('Done' in splitOut[-2])
+		self.assertTrue(os.path.exists('%s/out.gff3'%(out_dir)))
+		OF = open('%s/out.gff3'%(out_dir),'r').readlines()
+		self._compare_against_file(OF, self.gff3, True)
+		if os.path.exists(out_dir):
+			rmtree(out_dir)
+	def test_stateful_cli_noTEMD_stranded_res2_01(self):
+		if not self.test_model: return
+		n, out_dir, lr, sl = '64', 'test_stateful_cli', '0.01', '10'
+		bsize, layers = '1', '1'
+		testArgs = ['teamRNN', \
+			'-R', self.fa, \
+			'-D', out_dir, \
+			'-N', 'plain', \
+			'-M', self.mr1, \
+			'--max_fill', '0', \
+			'--min_feat', '0', \
+			'-v', 'train', \
+			'-B', bsize, \
+			'-A', self.gff3, \
+			'-E', '300', \
+			'-r', lr, \
+			'-l', layers, \
+			'--residual', '2', \
+			'-L', sl, \
+			'-n', n, \
+			'--every', '100', \
+			'--noTEMD', \
+			'--stateful', \
+			'--stranded', \
+			'-f']
+		with patch('sys.argv', testArgs):
+			teamRNN.main()
+		output = logStream.getvalue()
+		#print output
+		splitOut = output.split('\n')
+		self.assertTrue('Done' in splitOut[-2])
+		#for f in glob('test_cli/*'): print f
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_stranded_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
+		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
+	def test_stateful_cli_noTEMD_stranded_res2_02(self):
 		if not self.test_model: return
 		out_dir = 'test_stateful_cli'
 		testArgs = ['teamRNN', \

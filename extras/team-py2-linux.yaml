@@ -28,6 +28,8 @@ dependencies:
   - openssl=1.0
   - sra-tools
   - bsmapz
+  - pydot
+  - graphviz
 #  - hmmlearn
 #  - gcc_linux-64
 #  - gxx_linux-64
