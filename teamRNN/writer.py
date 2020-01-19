@@ -434,8 +434,8 @@ class MSE_interval:
 			f_sum_str_list = map(str, fivenum(y))
 			f_sum_str = ', '.join(f_sum_str_list)
 			logger.info("%s - Epoch %3i - Chrom %s MSE summary [%s]"%(name, epoch+1, chrom, f_sum_str))
-			out_file = os.path.join(self.out_dir, '%s_e%i_%s.tsv'%(name.lower(), epoch, chrom))
-			np.savetxt(out_file, (x,y), delimiter='\t')
+			out_file = os.path.join(self.out_dir, '%s_e%i_%s.npz'%(name.lower(), epoch, chrom))
+			np.savez(out_file, x=x, y=y)
 			logger.debug("Wrote %s"%(out_file))
 
 #def main():

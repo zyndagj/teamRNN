@@ -1110,7 +1110,7 @@ class TestReader(unittest.TestCase):
 			'-v', 'train', \
 			'-B', bsize, \
 			'-A', self.gff3, \
-			'-E', '200', \
+			'-E', '250', \
 			'-r', lr, \
 			'-l', layers, \
 			'-L', sl, \

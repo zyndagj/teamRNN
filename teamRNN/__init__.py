@@ -244,6 +244,29 @@ def train(args):
 			assert(train_x[chrom].shape == (n_batches*model_batch, sl, M.n_inputs))
 			assert(train_y[chrom].shape == (n_batches*model_batch, sl, M.n_outputs))
 		logger.info("Finished caching %s"%(chrom))
+	# Cache test data
+	test_cbld, test_xbld, test_ybld = {}, {}, {}
+	for chrom in [train_chroms[0]]+([test_chroms[0]] if test_chroms else []):
+		cbl, xbl, ybl = zip(*iter_func(chrom, seq_len=sl, offset=args.offset, \
+			batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size))
+		if cached_args.stranded:
+			test_cbld[chrom] = cbl+cbl[::-1]
+			test_xbld[chrom] = list(xbl)+map(reader.rev_comp, xbl[::-1])
+			yrbl = [np.flip(yb.copy(), axis=1) for yb in ybl[::-1]]
+			[reader.mask(yb, '+') for yb in yrbl]
+			[reader.mask(yb, '-') for yb in ybl]
+			test_ybld[chrom] = list(ybl)+yrbl
+		else:
+			test_cbld[chrom] = cbl
+			test_xbld[chrom] = xbl
+			test_ybld[chrom] = ybl
+	tc = train_chroms[0]
+	if cached_args.stranded:
+		assert(np.all(np.vstack((train_x[tc],train_xr[tc])) == np.vstack(test_xbld[tc])))
+		assert(np.all(np.vstack((train_y[tc],train_yr[tc])) == np.vstack(test_ybld[tc])))
+	else:
+		assert(np.all(train_x[tc] == np.vstack(test_xbld[tc])))
+		assert(np.all(train_y[tc] == np.vstack(test_ybld[tc])))
 	del cbl, xbl, ybl
 	# Run
 	for E in irange(args.epochs):
@@ -282,11 +305,8 @@ def train(args):
 				chrom_time, start_time = time(), time()
 				reverse = False
 				if cached_args.stateful: M.model.reset_states()
-				for count, batch in enumerate(iter_func(chrom, \
-						seq_len=args.sequence_length, offset=args.offset, \
-						batch_size=cached_args.batch_size, \
-						hvd_rank=args.hvd_rank, hvd_size=args.hvd_size)):
-					cb, xb, yb = batch
+				for cb, xb, yb in zip(test_cbld[chrom], test_xbld[chrom], \
+						test_ybld[chrom]):
 					cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
 					assert(len(cb) == model_batch)
 					if cached_args.stateful and cached_args.stranded:
