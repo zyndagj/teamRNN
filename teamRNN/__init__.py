@@ -89,6 +89,7 @@ def main():
 	parser_train = subparsers.add_parser("train", help="Train the model on data")
 	parser_train.add_argument('-A', '--annotation', metavar="GFF3", help='Reference annotation used for training', type=fC.gff, required=True)
 	parser_train.add_argument('-E', '--epochs', metavar="INT", help='Number of training epochs [%(default)s]', default=100, type=int)
+	parser_train.add_argument('--fewer', action='store_true', help='Make predictions against reduced target set')
 	parser_train.add_argument('--stranded', action='store_true', help='Separate traversals for each strand')
 	parser_train.add_argument('-B', '--batch_size', metavar='INT', help='Batch size for each rank[%(default)s]', default=100, type=int)
 	parser_train.add_argument('-L', '--sequence_length', metavar="INT", help='Length of sequence used for classification [%(default)s]', default=500, type=int)
@@ -193,7 +194,7 @@ def train(args):
 	M = model.sleight_model(args.name, \
 		n_inputs = 10, \
 		n_steps = cached_args.sequence_length, \
-		n_outputs = calc_n_outputs(args, cached_args), \
+		n_outputs = out_dim, \
 		n_neurons = cached_args.neurons, \
 		n_layers = cached_args.layers, \
 		res_blocks = cached_args.residual, \
@@ -234,8 +235,8 @@ def train(args):
 		if cached_args.stranded:
 			train_xr[chrom] = reader.rev_comp(np.vstack(xbl[::-1]))
 			train_yr[chrom] = np.flip(np.vstack(ybl[::-1]), axis=1)
-			reader.mask(train_y[chrom], '-')
-			reader.mask(train_yr[chrom], '+')
+			reader.mask(train_y[chrom], '-', IS.few)
+			reader.mask(train_yr[chrom], '+', IS.few)
 		n_batches = len(cbl)
 		if cached_args.stranded and cached_args.stateful:
 			assert(train_x[chrom].shape == (n_batches*model_batch, sl, M.n_inputs))
@@ -255,8 +256,8 @@ def train(args):
 			test_cbld[chrom] = cbl+cbl[::-1]
 			test_xbld[chrom] = list(xbl)+map(reader.rev_comp, xbl[::-1])
 			yrbl = [np.flip(yb.copy(), axis=1) for yb in ybl[::-1]]
-			[reader.mask(yb, '+') for yb in yrbl]
-			[reader.mask(yb, '-') for yb in ybl]
+			[reader.mask(yb, '+', IS.few) for yb in yrbl]
+			[reader.mask(yb, '-', IS.few) for yb in ybl]
 			test_ybld[chrom] = list(ybl)+yrbl
 		else:
 			test_cbld[chrom] = cbl
@@ -376,8 +377,8 @@ def classify(args):
 		cached_args = pickle.load(CF)
 	# Open the input
 	out_dim = calc_n_outputs(args, cached_args)
-	IS = reader.input_slicer(args.reference, args.methratio, quality=args.quality, ploidy=args.ploidy, \
-		out_dim=out_dim, stateful=bool(cached_args.stateful))
+	IS = reader.input_slicer(args.reference, args.methratio, quality=args.quality, \
+		ploidy=args.ploidy, out_dim=out_dim, stateful=bool(cached_args.stateful))
 	init_hvd(args)
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
 	model_batch = int(cached_args.batch_size/args.hvd_size) if hvd and cached_args.stateful else cached_args.batch_size
@@ -385,7 +386,7 @@ def classify(args):
 	M = model.sleight_model(args.name, \
 		n_inputs = 10, \
 		n_steps = cached_args.sequence_length, \
-		n_outputs = calc_n_outputs(args, cached_args), \
+		n_outputs = out_dim, \
 		n_neurons = cached_args.neurons, \
 		n_layers = cached_args.layers, \
 		res_blocks = cached_args.residual, \
@@ -421,18 +422,26 @@ def classify(args):
 		logger.info("Done")
 
 def calc_n_outputs(args, cached_args):
+	if 'fewer' in args and args.fewer:
+		logger.info("Using reduced target set")
+		f2i = constants.few_gff3_f2i
+	elif 'fewer' in cached_args and cached_args.fewer:
+		logger.info("Using reduced target set")
+		f2i = constants.few_gff3_f2i
+	else:
+		f2i = constants.gff3_f2i
 	if 'noTEMD' in args and args.noTEMD:
 		logger.info("Not including TE metadata in output")
-		return len(constants.gff3_f2i)
+		return len(f2i)
 	elif 'noTEMD' in cached_args and cached_args.noTEMD:
 		logger.info("Not including TE metadata in output")
-		return len(constants.gff3_f2i)
-	return len(constants.gff3_f2i)+2
+		return len(f2i)
+	return len(f2i)+2
 
 def make_predictions(IS, M, args, cached_args, model_batch):
 	# Open the output
 	noTEMD = 'noTEMD' in cached_args and cached_args.noTEMD
-	OA = writer.output_aggregator(args.reference, noTEMD=noTEMD, h5_file=os.path.join(args.directory, 'tmp_vote.h5'), stranded=cached_args.stranded)
+	OA = writer.output_aggregator(args.reference, noTEMD=noTEMD, h5_file=os.path.join(args.directory, 'tmp_vote.h5'), stranded=cached_args.stranded, few=cached_args.fewer)
 	# Store iteration method
 	iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
 	#### Classify #################################################

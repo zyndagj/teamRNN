@@ -7,7 +7,7 @@ import numpy as np
 import multiprocessing as mp
 from functools import partial
 from quicksect import IntervalTree
-from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index, te_feature_names
+from teamRNN.constants import few_gff3_f2i, few_gff3_i2f, gff3_f2i, gff3_i2f, contexts, strands, base2index, te_feature_names
 from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam_i2f
 from teamRNN.util import irange, iterdict
 from collections import defaultdict as dd
@@ -73,9 +73,11 @@ class refcache:
 class gff3_interval:
 	def __init__(self, gff3, out_dim=len(gff3_f2i)+2, include_chrom=False, force=False):
 		self.gff3 = gff3
-		self.pkl = "%s.pkl"%(gff3)
+		self.pkl = "%s_%i.pkl"%(gff3, out_dim)
 		self.out_dim = out_dim
-		self.noTEMD = out_dim == len(gff3_f2i)
+		self.few = out_dim == len(few_gff3_f2i)
+		self.gff3_f2i = few_gff3_f2i if self.few else gff3_f2i
+		self.noTEMD = out_dim == len(gff3_f2i) or out_dim == len(few_gff3_f2i)
 		self.force = force
 		self._order_re = re.compile('Order=(?P<order>[^;/]+)')
 		self._sufam_re = re.compile('Superfamily=(?P<sufam>[^;]+)')
@@ -95,8 +97,8 @@ class gff3_interval:
 			for line in filter(lambda x: x[0] != "#", IF):
 				tmp = line.rstrip('\n').split('\t')
 				chrom, strand, element, attributes = tmp[0], tmp[6], tmp[2], tmp[8]
-				if element not in exclude and strand+element in gff3_f2i:
-					element_id = gff3_f2i[strand+element]
+				if element not in exclude and strand+element in self.gff3_f2i:
+					element_id = self.gff3_f2i[strand+element]
 					te_order_id = 0
 					te_sufam_id = 0
 					if element in te_feature_names:
@@ -109,7 +111,7 @@ class gff3_interval:
 					start, end = map(int, tmp[3:5])
 					self.interval_tree[chrom].add(start-1, end, (element_id, te_order_id, te_sufam_id))
 		logger.debug("Finished creating interval trees")
-		chrom_file_dict = {chrom:'%s.%s.pkl'%(self.gff3, chrom) for chrom in self.interval_tree}
+		chrom_file_dict = {chrom:'%s_%i.%s.pkl'%(self.gff3, self.out_dim, chrom) for chrom in self.interval_tree}
 		for chrom, pkl_file in iterdict(chrom_file_dict):
 			self.interval_tree[chrom].dump(pkl_file)
 		with open(self.pkl, 'wb') as P:
@@ -148,9 +150,10 @@ class input_slicer:
 		self.quality = quality
 		self.ploidy = ploidy
 		self.out_dim = out_dim
+		self.few = out_dim in (len(few_gff3_f2i), 2+len(few_gff3_f2i))
 		if stateful:
-			self.pool = mp.Pool(4, slicer_init, (self.fasta_file, self.meth_file, \
-						self.gff3_file, self.quality, self.ploidy, self.out_dim))
+			self.pool = mp.Pool(4, slicer_init, (fasta_file, meth_file, \
+				gff3_file, quality, ploidy, out_dim))
 		else:
 			self.pool = False
 	def __del__(self):
@@ -312,7 +315,7 @@ class input_slicer:
 				c, x, y = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
 				npy = np.array(y)
 				#remove all predictions from reverse strand
-				if stranded: mask(npy, '-')
+				if stranded: mask(npy, '-', self.few)
 				yield (list(c), np.array(x), npy)
 			else:
 				c, x = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
@@ -325,7 +328,7 @@ class input_slicer:
 					c, x, y = zip(*self.pool.imap(partial_wgr, rank_region_starts, chunksize=25))
 					npx, npy = map(np.array, (x,y))
 					npx = rev_comp(npx) # flip and comp x
-					mask(npy, '+') # mask forward prediction
+					mask(npy, '+', self.few) # mask forward prediction
 					rnpy = np.flip(npy, axis=1) # flip y
 					yield (list(c), npx, rnpy)
 				else:
@@ -343,17 +346,18 @@ def rev_comp(batch):
 	ret[mask,0] = (ret[mask,0]+2)%4
 	return ret
 
-def mask(batch, mask_strand='-'):
-	n_feat = len(gff3_f2i)
+def mask(batch, mask_strand='-', few=False):
+	f2i = few_gff3_f2i if few else gff3_f2i
+	n_feat = len(f2i)
 	half_feat = n_feat/2
-	if batch.shape[2] == len(gff3_f2i):
+	if batch.shape[2] == n_feat:
 		if mask_strand == '+':
 			batch[:,:,0:half_feat] = 0
 		if mask_strand == '-':
 			batch[:,:,half_feat:] = 0
-	elif batch.shape[2] == len(gff3_f2i)+2:
-		tef = [gff3_f2i['+'+fn] for fn in te_feature_names]
-		ter = [gff3_f2i['-'+fn] for fn in te_feature_names]
+	elif batch.shape[2] == n_feat+2:
+		tef = [f2i['+'+fn] for fn in te_feature_names]
+		ter = [f2i['-'+fn] for fn in te_feature_names]
 		nzf = batch[:,:,0:half_feat] != 0
 		nzr = batch[:,:,half_feat:n_feat] != 0
 		nzft = np.any(batch[:,:,tef] != 0, axis=2)
@@ -374,7 +378,6 @@ def slicer_init(fasta_file, meth_file, gff3_file, quality, ploidy, out_dim):
 	wIS = input_slicer(fasta_file, meth_file, gff3_file, quality, ploidy, out_dim)
 	logger.debug("%i Finished initializing worker input slicer"%(os.getpid()))
 def worker_get_region(region_start, chrom, chrom_len, chrom_quality, seq_len):
-	#global wIS
 	global wIS
 	return wIS._get_region(chrom, region_start, chrom_len, chrom_quality, seq_len)
 def worker_close(pid):

@@ -42,7 +42,8 @@ from time import time
 logger = logging.getLogger(__name__)
 import numpy as np
 from teamRNN.util import irange, iterdict, fivenum, calcRegionBounds, bridge_array, is_reverse
-from teamRNN.constants import gff3_f2i, gff3_i2f, contexts, strands, base2index, te_feature_names
+from teamRNN.constants import few_gff3_f2i, few_gff3_i2f, gff3_f2i, gff3_i2f, \
+	contexts, strands, base2index, te_feature_names, few_te_feature_names
 from teamRNN.constants import te_order_f2i, te_order_i2f, te_sufam_f2i, te_sufam_i2f
 from itertools import chain
 import re
@@ -57,9 +58,12 @@ class output_aggregator:
 	>>> OA.vote(chrom, s, e, out_array)
 	>>> OA.write_gff3()
 	'''
-	def __init__(self, fasta_file, noTEMD=False, h5_file='tmp_vote.h5', stranded=False):
+	def __init__(self, fasta_file, noTEMD=False, h5_file='tmp_vote.h5', stranded=False, few=False):
 		self.fasta_file = fasta_file
 		self.noTEMD = noTEMD
+		self.few = few
+		self.i2f = few_gff3_i2f if self.few else gff3_i2f
+		self.f2i = few_gff3_f2i if self.few else gff3_f2i
 		self.stranded = stranded
 		with FastaFile(fasta_file) as FA:
 			self.chrom_dict = {c:FA.get_reference_length(c) for c in FA.references}
@@ -102,7 +106,7 @@ class output_aggregator:
 			chunks=True, fillvalue=0, dtype=dtype)
 		return np.zeros(size_tuple, dtype=dtype)
 	def _genome_init(self):
-		n_features = len(gff3_i2f)
+		n_features = len(self.i2f)
 		n_order_ids = len(te_order_i2f)
 		n_sufam_ids = len(te_sufam_i2f)
 		for chrom, chrom_len in iterdict(self.chrom_dict):
@@ -119,7 +123,10 @@ class output_aggregator:
 					chrom+'/votes/tes/sufam')
 		self.cur_chrom = chrom
 		# Init this
-		self.te_feature_ids = set([gff3_f2i[s+f] for f in te_feature_names for s in '+-'])
+		if self.few:
+			self.te_feature_ids = set([self.f2i[s+f] for f in few_te_feature_names for s in '+-'])
+		else:
+			self.te_feature_ids = set([self.f2i[s+f] for f in te_feature_names for s in '+-'])
 		# Create counters
 		self.features_tp = np.zeros(n_features)
 		self.features_fn = np.zeros(n_features)
@@ -135,12 +142,12 @@ class output_aggregator:
 		#print "VOTE:", chrom, start, end, np.nonzero(array)
 		# Split the array
 		if not self.noTEMD:
-			assert(array.shape[1] == len(gff3_i2f)+2)
+			assert(array.shape[1] == len(self.i2f)+2)
 			te_order_array = array[:,-2]
 			te_sufam_array = array[:,-1]
 		else:
-			assert(array.shape[1] == len(gff3_i2f))
-		n_feat = len(gff3_i2f)
+			assert(array.shape[1] == len(self.i2f))
+		n_feat = len(self.i2f)
 		half_feat = n_feat/2
 		assert(2*half_feat == n_feat)
 		if self.stranded:
@@ -149,7 +156,7 @@ class output_aggregator:
 			else:
 				feature_array = array[::-1,half_feat:n_feat]
 		else:
-			feature_array = array[:,:len(gff3_i2f)]
+			feature_array = array[:,:len(self.i2f)]
 		# Load the current chromosome arrays
 		if self.cur_chrom != chrom: self._load_arrays(chrom)
 		# Track features
@@ -192,20 +199,20 @@ class output_aggregator:
 						self.te_sufam_array[start+i,v] += 1
 	def compare(self, chrom, start, end, pred_array, true_array):
 		if not self.noTEMD:
-			assert(array.shape[1] == len(gff3_i2f)+2)
+			assert(array.shape[1] == len(self.i2f)+2)
 			pred_te_order_array = pred_array[:,-2]
 			pred_te_sufam_array = pred_array[:,-1]
 			true_te_order_array = true_array[:,-2]
 			true_te_sufam_array = true_array[:,-1]
 		else:
-			assert(array.shape[1] == len(gff3_i2f))
+			assert(array.shape[1] == len(self.i2f))
 		assert(pred_array.shape == true_array.shape)
 		# Split the array
-		pred_feature_array = pred_array[:,:len(gff3_i2f)]
-		true_feature_array = true_array[:,:len(gff3_i2f)]
+		pred_feature_array = pred_array[:,:len(self.i2f)]
+		true_feature_array = true_array[:,:len(self.i2f)]
 		# Track features
 		for i in irange(pread_array.shape[0]):
-			for j in irange(len(gff3_i2f)):
+			for j in irange(len(self.i2f)):
 				# Features
 				if pred_feature_array[i,j] != true_feature_array[i,j]:
 					if pred_feature_array[i,j] == 1:
@@ -234,19 +241,6 @@ class output_aggregator:
 								self.te_sufam_tp[pred_te_sufam_array[i]] += 1
 							else:
 								self.te_sufam_fn[pred_te_sufam_array[i]] += 1
-	def comparison_stats(self, features=True, order=False, sufam=False):
-		oStr = [', '.join(('Name','TP','FP','FN','Sensitivity','Precision'))]
-		if features:
-			for i in irange(len(gff3_i2f)):
-				name = gff3_i2f[i]
-				if not self.noTEMD:
-					tp = self.te_features_tp[i]
-					fp = self.te_features_fp[i]
-					fn = self.te_features_fn[i]
-				sen = str(tp/float(tp+fn))
-				prec = str(tp/float(tp+fp))
-				oStr.append('%s, %i, %i, %i, %s, %s'%(name, tp, fp, fn, sen, prec))
-		return oStr
 	def write_gff3(self, out_file='', threshold=0.5, min_size=0, max_fill_size=0):
 		total_feature_count = 0
 		out_gff3 = ['##gff-version   3']
@@ -258,11 +252,11 @@ class output_aggregator:
 		for chrom in sorted(self.chrom_dict.keys()):
 			chrom_len = self.chrom_dict[chrom]
 			features = []
-			se_array = [[0,0] for i in irange(len(gff3_i2f))]
+			se_array = [[0,0] for i in irange(len(self.i2f))]
 			self._load_arrays(chrom)
 			logger.debug("Feature vote row sums: %s"%(str(list(self.feature_vote_array.sum(axis=0)))))
 			logger.debug("Feature total row sums: %s"%(str(list(self.feature_total_array.sum(axis=0)))))
-			for feat_index in gff3_i2f.keys():
+			for feat_index in self.i2f.keys():
 				vote_array = self.feature_vote_array[:,feat_index]
 				if self.stranded:
 					gtT_mask = vote_array >= threshold*self.feature_total_array[:,0]/2.0
@@ -277,7 +271,7 @@ class output_aggregator:
 					features.append((s,e,feat_index))
 			features.sort(key=itemgetter(0,1))
 			for s,e,feat_index in features:
-				full_name = gff3_i2f[feat_index]
+				full_name = self.i2f[feat_index]
 				strand = full_name[0]
 				feature_name = full_name[1:]
 				feature_str = "%s\tteamRNN\t%s\t%i\t%i\t.\t%s\t.\tID=team_%i"%(chrom, feature_name, s, e, strand, total_feature_count)

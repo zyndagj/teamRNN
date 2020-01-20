@@ -37,13 +37,17 @@
 
 # Pulled from all GFF3 files
 features = ['CDS', 'RNase_MRP_RNA', 'SRP_RNA', 'antisense_RNA', 'antisense_lncRNA', 'biological_region', 'chromosome', 'contig', 'exon', 'five_prime_UTR', 'gene', 'lnc_RNA', 'mRNA', 'miRNA', 'ncRNA', 'ncRNA_gene', 'pre_miRNA', 'pseudogene', 'pseudogenic_exon', 'pseudogenic_tRNA', 'pseudogenic_transcript', 'rRNA', 'region', 'snRNA', 'snoRNA', 'supercontig', 'tRNA', 'three_prime_UTR', 'tmRNA', 'transposable_element', 'transposable_element_gene', 'transposon_fragment', 'uORF']
+few_features = ['CDS', 'exon', 'five_prime_UTR', 'gene', 'mRNA', 'three_prime_UTR', 'transposable_element', 'transposable_element_gene']
 contexts = ('CG','CHG','CHH')
 strands = ('+', '-')
 
 gff3_f2i = {v:i for i,v in enumerate([s+e for s in strands for e in features])}
 gff3_i2f = {i:v for i,v in enumerate([s+e for s in strands for e in features])}
+few_gff3_f2i = {v:i for i,v in enumerate([s+e for s in strands for e in few_features])}
+few_gff3_i2f = {i:v for i,v in enumerate([s+e for s in strands for e in few_features])}
 
 te_feature_names = set(('transposable_element', 'transposable_element_gene', 'transposon_fragment'))
+few_te_feature_names = set(('transposable_element', 'transposable_element_gene'))
 
 # Pulled from arabidopsis and repeatmasker
 orders = ['Unassigned', 'DNA', 'LINE', 'LTR', 'Low_complexity', 'RC', 'Retroposon', 'rRNA', 'Satellite', 'Simple_repeat', 'SINE', 'snRNA', 'TIR', 'tRNA']
