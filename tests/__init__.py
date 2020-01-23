@@ -1,4 +1,8 @@
 import unittest, sys, os
+
+os.environ['PYTHONHASHSEED']='42'
+os.environ['TF_DETERMINISTIC_OPS']='1'
+
 from glob import glob
 from time import time
 try:
@@ -34,7 +38,7 @@ class TestReader(unittest.TestCase):
 		self.seq_len = 15
 		self.n_outputs = len(constants.gff3_f2i)+2
 		self.test_model = True
-		self.n_epoch = 200
+		self.n_epoch = 100
 		self.learning_rate = 0.01
 		m5 = Meth5py(self.mr1, self.fa, n_cores=1)
 		m5.close()
@@ -721,14 +725,15 @@ class TestReader(unittest.TestCase):
 			for i in range(1,len(mse_list)):
 				self.assertNotEqual(baseline_mse[i], mse_list[i])
 	def test_train_01(self):
+		if os.path.exists('test_model'): rmtree('test_model')
 		def a2s(a):
 			return '['+', '.join(map(lambda x: '%.2f'%(x), a))+']'
 		if not self.test_model: return
 		batch_size = 20-self.seq_len+1
 		# create models
-		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
-			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
-			cell_type='rnn')
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, \
+			n_neurons=256, learning_rate=0.005, bidirectional=True, \
+			save_dir='test_model', cell_type='rnn')
 		# train models
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		ISBL = list(IS.genome_iter(self.seq_len, batch_size=batch_size))
@@ -763,9 +768,9 @@ class TestReader(unittest.TestCase):
 		if not self.test_model: return
 		batch_size = 20-self.seq_len+1
 		# create models
-		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, n_neurons=60, \
-			learning_rate=self.learning_rate, bidirectional=True, save_dir='test_model', \
-			cell_type='rnn')
+		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, \
+			n_neurons=256, learning_rate=0.005, bidirectional=True, \
+			save_dir='test_model', cell_type='rnn')
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		M.restore()
 		# Vote
@@ -1022,7 +1027,7 @@ class TestReader(unittest.TestCase):
 			'-v', 'train', \
 			'-B', bsize, \
 			'-A', self.gff3, \
-			'-E', '200', \
+			'-E', '300', \
 			'-r', lr, \
 			'-l', layers, \
 			'-L', sl, \
@@ -1153,10 +1158,11 @@ class TestReader(unittest.TestCase):
 		self._compare_against_file(OF, self.gff3, True)
 		if os.path.exists(out_dir):
 			rmtree(out_dir)
-	def test_stateful_cli_noTEMD_stranded_res2_01(self):
+	def test_stateful_cli_noTEMD_stranded_dense2_01(self):
 		if not self.test_model: return
-		n, out_dir, lr, sl = '128', 'test_stateful_cli', '0.005', '10'
-		bsize, layers = '1', '1'
+		n, out_dir, lr, sl = '32', 'test_stateful_cli', '0.01', '10'
+		bsize, layers = '1', '2'
+		if os.path.exists(out_dir): rmtree(out_dir)
 		testArgs = ['teamRNN', \
 			'-R', self.fa, \
 			'-D', out_dir, \
@@ -1167,10 +1173,10 @@ class TestReader(unittest.TestCase):
 			'-v', 'train', \
 			'-B', bsize, \
 			'-A', self.gff3, \
-			'-E', '300', \
+			'-E', '200', \
 			'-r', lr, \
 			'-l', layers, \
-			'--residual', '2', \
+			'--dense', '3', \
 			'-L', sl, \
 			'-n', n, \
 			'--every', '100', \
@@ -1187,7 +1193,10 @@ class TestReader(unittest.TestCase):
 		#for f in glob('test_cli/*'): print f
 		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_stranded_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
-	def test_stateful_cli_noTEMD_stranded_res2_02(self):
+		self.assertTrue(os.path.exists('%s/training_output_raw.gff3'%(out_dir)))
+		OF = open('%s/training_output_raw.gff3'%(out_dir),'r').readlines()
+		self._compare_against_file(OF, self.gff3, True)
+	def test_stateful_cli_noTEMD_stranded_dense2_02(self):
 		if not self.test_model: return
 		out_dir = 'test_stateful_cli'
 		testArgs = ['teamRNN', \

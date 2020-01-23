@@ -69,7 +69,7 @@ class sleight_model:
 		 learning_rate=0.001, dropout=0, cell_type='rnn', reg_kernel=False, reg_bias=False, \
 		 reg_activity=False, l1=0, l2=0, bidirectional=False, merge_mode='concat', \
 		 stateful=False, hidden_list=[], conv=False, batchN=False, noTEMD=False, \
-		 stranded=False, res_blocks=0, save_dir='.'):
+		 stranded=False, dense_blocks=0, save_dir='.'):
 		self.name = name # Name of the model
 		self.n_inputs = n_inputs # Number of input features
 		self.n_outputs = n_outputs # Number of outputs
@@ -84,7 +84,7 @@ class sleight_model:
 		self.bn = batchN
 		self.noTEMD = noTEMD
 		self.stranded = stranded
-		self.res_blocks = res_blocks
+		self.dense_blocks = dense_blocks
 		# https://keras.io/regularizers/
 		self.reg_kernel = reg_kernel # Use kernel regularization
 		self.reg_bias = reg_bias # Use bias regularization
@@ -185,11 +185,11 @@ class sleight_model:
 		# RNN layers
 		nexti = self._rnn_block(nexti)
 		# Residual RNN blocks
-		if self.res_blocks:
+		if self.dense_blocks:
 			nexti = concatenate([inputs, nexti], axis=-1)
-			for j in range(self.res_blocks-1):
-				nexti = self._rnn_block(nexti)
-				nexti = concatenate([inputs, nexti], axis=-1)
+			for j in range(self.dense_blocks-1):
+				out = self._rnn_block(nexti)
+				nexti = concatenate([nexti, out], axis=-1)
 		# Handle hidden layers
 		if self.hidden_list and self.hidden_list[0] > 0:
 			logger.debug("Appending %s TimeDistributed hidden layers"%(str(self.hidden_list)))
