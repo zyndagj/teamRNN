@@ -135,6 +135,10 @@ def main():
 	# Parse args
 	##############################################
 	args = parser.parse_args()
+	if 'stateful' in args and args.stateful and 'stranded' in args and args.stranded:
+		nb = max(args.batch_size/2, 1)
+		logger.debug("Updating stranded batch size to %i, total will be %i"%(nb, nb*2))
+		args.batch_size = nb
 	args.config = os.path.join(args.directory, 'config.pkl')
 	################################
 	# Configure logging
@@ -190,6 +194,7 @@ def train(args):
 	# Parse hidden list
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
 	model_batch = int(cached_args.batch_size/args.hvd_size) if hvd and cached_args.stateful else cached_args.batch_size
+	if cached_args.stranded: model_batch *= 2
 	# Load model
 	M = model.sleight_model(args.name, \
 		n_inputs = 10, \
@@ -232,44 +237,42 @@ def train(args):
 			batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size))
 		train_x[chrom] = np.vstack(xbl)
 		train_y[chrom] = np.vstack(ybl)
-		if cached_args.stranded:
+		n_batches = len(cbl)
+		if cached_args.stranded and cached_args.stateful:
 			train_xr[chrom] = reader.rev_comp(np.vstack(xbl[::-1]))
 			train_yr[chrom] = np.flip(np.vstack(ybl[::-1]), axis=1)
 			reader.mask(train_y[chrom], '-', IS.few)
 			reader.mask(train_yr[chrom], '+', IS.few)
-		n_batches = len(cbl)
-		if cached_args.stranded and cached_args.stateful:
+			train_y[chrom] = interleave(train_y[chrom], train_yr[chrom])
+			train_x[chrom] = interleave(train_x[chrom], train_xr[chrom])
+			assert(train_xr[chrom].shape == (n_batches*model_batch/2, sl, M.n_inputs))
+			assert(train_yr[chrom].shape == (n_batches*model_batch/2, sl, M.n_outputs))
 			assert(train_x[chrom].shape == (n_batches*model_batch, sl, M.n_inputs))
 			assert(train_y[chrom].shape == (n_batches*model_batch, sl, M.n_outputs))
-			assert(train_xr[chrom].shape == (n_batches*model_batch, sl, M.n_inputs))
-			assert(train_yr[chrom].shape == (n_batches*model_batch, sl, M.n_outputs))
 		else:
 			assert(train_x[chrom].shape == (n_batches*model_batch, sl, M.n_inputs))
 			assert(train_y[chrom].shape == (n_batches*model_batch, sl, M.n_outputs))
 		logger.info("Finished caching %s"%(chrom))
+	del train_xr, train_yr
 	# Cache test data
 	test_cbld, test_xbld, test_ybld = {}, {}, {}
 	for chrom in [train_chroms[0]]+([test_chroms[0]] if test_chroms else []):
 		cbl, xbl, ybl = zip(*iter_func(chrom, seq_len=sl, offset=args.offset, \
 			batch_size=cached_args.batch_size, hvd_rank=args.hvd_rank, hvd_size=args.hvd_size))
 		if cached_args.stranded:
-			test_cbld[chrom] = cbl+cbl[::-1]
-			test_xbld[chrom] = list(xbl)+map(reader.rev_comp, xbl[::-1])
+			test_cbld[chrom] = map(interleave_lists, cbl, cbl[::-1])
+			test_xbld[chrom] = map(interleave, list(xbl), map(reader.rev_comp, xbl[::-1]))
 			yrbl = [np.flip(yb.copy(), axis=1) for yb in ybl[::-1]]
 			[reader.mask(yb, '+', IS.few) for yb in yrbl]
 			[reader.mask(yb, '-', IS.few) for yb in ybl]
-			test_ybld[chrom] = list(ybl)+yrbl
+			test_ybld[chrom] = map(interleave, list(ybl), yrbl)
 		else:
 			test_cbld[chrom] = cbl
 			test_xbld[chrom] = xbl
 			test_ybld[chrom] = ybl
 	tc = train_chroms[0]
-	if cached_args.stranded:
-		assert(np.all(np.vstack((train_x[tc],train_xr[tc])) == np.vstack(test_xbld[tc])))
-		assert(np.all(np.vstack((train_y[tc],train_yr[tc])) == np.vstack(test_ybld[tc])))
-	else:
-		assert(np.all(train_x[tc] == np.vstack(test_xbld[tc])))
-		assert(np.all(train_y[tc] == np.vstack(test_ybld[tc])))
+	assert(np.all(train_x[tc] == np.vstack(test_xbld[tc])))
+	assert(np.all(train_y[tc] == np.vstack(test_ybld[tc])))
 	del cbl, xbl, ybl
 	# Run
 	for E in irange(args.epochs):
@@ -282,17 +285,9 @@ def train(args):
 			M.model.fit(train_x[chrom], train_y[chrom], \
 				batch_size=model_batch, epochs=1, shuffle=False, \
 				callbacks=[history], verbose=0)
-			if cached_args.stranded and cached_args.stateful:
-				if cached_args.stateful: M.model.reset_states()
-				M.model.fit(train_xr[chrom], train_yr[chrom], \
-					batch_size=model_batch, epochs=1, shuffle=False, \
-					callbacks=[history], verbose=0)
 			L5 = np.round(fivenum(history.losses),3)
 			A5 = np.round(fivenum(history.acc),3)
-			if cached_args.stranded and cached_args.stateful:
-				rate = train_x[chrom].shape[0]*2/float(time()-start)
-			else:
-				rate = train_x[chrom].shape[0]/float(time()-start)
+			rate = train_x[chrom].shape[0]/float(time()-start)
 			logger.debug("E%i %s LOSS%s ACC%s %i seq/s"%(E, chrom, str(L5), str(A5), int(rate)))
 			#logger.debug("E-%i %s ACC  %s"%(E, chrom, str(fivenum(history.acc))))
 			if cached_args.stateful: M.model.reset_states()
@@ -306,16 +301,11 @@ def train(args):
 			logger.debug("Epoch-%04i - Collecting Training MSE values"%(E))
 			for chrom in [train_chroms[0]]+([test_chroms[0]] if test_chroms else []):
 				chrom_time, start_time = time(), time()
-				reverse = False
 				if cached_args.stateful: M.model.reset_states()
 				for cb, xb, yb in zip(test_cbld[chrom], test_xbld[chrom], \
 						test_ybld[chrom]):
 					cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
 					assert(len(cb) == model_batch)
-					if cached_args.stateful and cached_args.stranded:
-						if not reverse and is_reverse(xb):
-							M.model.reset_states()
-							reverse = True
 					y_pred_batch, predict_time = M.predict(xb, return_time=True)
 					MI.add_predict_batch(cb, yb, y_pred_batch)
 					#logger.debug("TEST: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
@@ -334,8 +324,8 @@ def train(args):
 			# Save between epochs
 			if (E+1)%cached_args.every == 0:
 				M.save(epoch=E)
-			else:
-				M.save()
+			#else:
+			#	M.save()
 	#### Write output #############################################
 	args.threshold = 0.5
 	args.output = os.path.join(args.directory, 'training_output.gff3')
@@ -382,6 +372,7 @@ def classify(args):
 	init_hvd(args)
 	hidden_list = map(int, cached_args.hidden_list.split(',')) if cached_args.hidden_list else []
 	model_batch = int(cached_args.batch_size/args.hvd_size) if hvd and cached_args.stateful else cached_args.batch_size
+	if cached_args.stranded: model_batch *= 2
 	# Load model
 	M = model.sleight_model(args.name, \
 		n_inputs = 10, \
@@ -408,6 +399,7 @@ def classify(args):
 	# See if there is a checkpoint to restore from
 	if not glob(M.save_file+"*"):
 		logger.error("Could not find match for %s. No model to restore from."%(M.save_file))
+		print("Could not find match for %s. No model to restore from."%(M.save_file))
 		sys.exit()
 	M.restore()
 	#print M.model.summary()
@@ -420,6 +412,19 @@ def classify(args):
 	OA.write_gff3(out_file=args.output, threshold=args.threshold, min_size=args.min_feat, max_fill_size=args.max_fill)
 	if not hvd or (hvd and hvd.rank() == 0):
 		logger.info("Done")
+
+def interleave(a,b):
+	assert(a.shape == b.shape)
+	nx, ny, nz = a.shape
+	nx *= 2
+	new = np.hstack([a, b]).reshape(nx, ny, nz)
+	assert(np.all(new[0,:,:] == a[0,:,:]))
+	assert(np.all(new[1,:,:] == b[0,:,:]))
+	return new
+def interleave_lists(a,b):
+	ret = [i for p in zip(a,b) for i in p]
+	assert(len(ret) == len(a)*2)
+	return ret
 
 def calc_n_outputs(args, cached_args):
 	if 'fewer' in args and args.fewer:
@@ -444,38 +449,40 @@ def make_predictions(IS, M, args, cached_args, model_batch):
 	OA = writer.output_aggregator(args.reference, noTEMD=noTEMD, h5_file=os.path.join(args.directory, 'tmp_vote.h5'), stranded=cached_args.stranded, few=cached_args.fewer)
 	# Store iteration method
 	iter_func = IS.stateful_chrom_iter if cached_args.stateful else IS.chrom_iter
+	model_batch = cached_args.batch_size
+	if cached_args.stranded: model_batch *= 2
 	#### Classify #################################################
 	for chrom in sorted(IS.FA.references):
 		seqs = 0
 		start_time = time()
 		if cached_args.stateful: M.model.reset_states()
-		reverse = False
-		for count, batch in enumerate(iter_func(chrom, seq_len=cached_args.sequence_length, \
-				offset=args.offset, batch_size=cached_args.batch_size, \
-				hvd_rank=args.hvd_rank, hvd_size=args.hvd_size, stranded=cached_args.stranded)):
-			if len(batch) == 2: cb, xb = batch
-			elif len(batch) == 3: cb, xb, yb = batch
-			else: raise ValueError(len(batch) in (2,3))
+		cbl, xbl = zip(*iter_func(chrom, seq_len=cached_args.sequence_length, \
+				offset=cached_args.offset, batch_size=cached_args.batch_size, \
+				hvd_rank=args.hvd_rank, hvd_size=args.hvd_size))[:2]
+		if cached_args.stranded:
+			cbl = map(interleave_lists, cbl, cbl[::-1])
+			xbl = map(interleave, list(xbl), map(reader.rev_comp, xbl[::-1]))
+		for cb, xb in zip(cbl, xbl):
 			cc, cs, ce = cb[0][0], cb[0][1], cb[-1][2]
 			assert(len(cb) == model_batch)
 			seqs += model_batch
-			if cached_args.stateful and cached_args.stranded:
-				if not reverse and is_reverse(xb):
-					M.model.reset_states()
-					reverse = True
 			y_pred_batch, predict_time = M.predict(xb, return_time=True)
 			#logger.debug("PREDICT: Batch-%03i %s:%i-%i TRAIN=%.1fs TOTAL=%.1fs RATE=%.1f seq/s"%(count, cc, cs, ce, predict_time, time()-start_time, len(xb)/predict_time))
-			if not y_pred_batch.sum(): logger.warn("No predictions in Batch-%03i %s:%i-%i"%(count, cc, cs, ce))
+			if not y_pred_batch.sum(): logger.warn("No predictions in %s:%i-%i"%(cc, cs, ce))
 			for c, x, yp in zip(cb, xb, y_pred_batch):
 				chrom,s,e = c
-				if cached_args.stateful:
-					OA.vote(*c, array=yp, overwrite=True, reverse=reverse)
+				if cached_args.stranded:
+					OA.vote(*c, array=yp, overwrite=True, reverse=seq_is_rev(x))
 				else:
 					OA.vote(*c, array=yp)
 		if cached_args.stateful: M.model.reset_states()
 		rate = seqs/float(time()-start_time)
 		logger.debug("Finished predictions for %s at a rate of %.1f seq/s"%(chrom, rate))
 	return OA
+
+def seq_is_rev(x):
+	assert(len(x.shape) == 2)
+	return x[0,1] > x[1,1]
 
 def test_barrier(msg):
 	if hvd.rank() == 0: logger.debug(msg)

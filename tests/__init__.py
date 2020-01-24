@@ -732,8 +732,8 @@ class TestReader(unittest.TestCase):
 		batch_size = 20-self.seq_len+1
 		# create models
 		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, \
-			n_neurons=256, learning_rate=0.005, bidirectional=True, \
-			save_dir='test_model', cell_type='rnn')
+			n_neurons=256, learning_rate=0.01, bidirectional=True, \
+			save_dir='test_model', cell_type='lstm')
 		# train models
 		IS = reader.input_slicer(self.fa, self.mr1, self.gff3)
 		ISBL = list(IS.genome_iter(self.seq_len, batch_size=batch_size))
@@ -764,13 +764,13 @@ class TestReader(unittest.TestCase):
 		# Compare
 		out_lines = OA.write_gff3()
 		self._compare_against_file(out_lines, self.gff3)
-	def test_train_02_restore(self):
+	def test_train_02(self):
 		if not self.test_model: return
 		batch_size = 20-self.seq_len+1
 		# create models
 		M = model.sleight_model('default', self.n_inputs, self.seq_len, self.n_outputs, \
-			n_neurons=256, learning_rate=0.005, bidirectional=True, \
-			save_dir='test_model', cell_type='rnn')
+			n_neurons=256, learning_rate=0.01, bidirectional=True, \
+			save_dir='test_model', cell_type='lstm')
 		self.assertTrue(len(glob('%s*'%(M.save_file))) > 0)
 		M.restore()
 		# Vote
@@ -958,7 +958,7 @@ class TestReader(unittest.TestCase):
 			rmtree('test_cli')
 	def test_stateful_cli_01(self):
 		if not self.test_model: return
-		out_dir, lr, sl = 'test_stateful_cli', '0.01', '4'
+		out_dir, lr, sl, n = 'test_stateful_cli', '0.01', '4', '128'
 		testArgs = ['teamRNN', \
 			'-R', self.fa, \
 			'-D', out_dir, \
@@ -966,14 +966,14 @@ class TestReader(unittest.TestCase):
 			'-M', self.mr1, \
 			'--max_fill', '0', \
 			'--min_feat', '0', \
-			'train', \
+			'-v', 'train', \
 			'-B', '4', \
 			'-A', self.gff3, \
-			'-E', '100', \
+			'-E', '300', \
 			'-r', lr, \
-			'-l', '1', \
+			'-l', '2', \
 			'-L', sl, \
-			'-n', '80', \
+			'-n', n, \
 			'--stateful', \
 			'-f']
 		with patch('sys.argv', testArgs):
@@ -982,7 +982,7 @@ class TestReader(unittest.TestCase):
 		splitOut = output.split('\n')
 		self.assertTrue('Done' in splitOut[-2])
 		#for f in glob('test_cli/*'): print f
-		self.assertTrue(os.path.exists('%s/plain_s%sx10_o68_unstranded_1xlstm80_stateful4_learn%s_drop0.h5'%(out_dir, sl, lr)))
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o68_unstranded_2xlstm%s_stateful4_learn%s_drop0.h5'%(out_dir, sl, n, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
 	def test_stateful_cli_02(self):
 		if not self.test_model: return
@@ -1105,7 +1105,7 @@ class TestReader(unittest.TestCase):
 		self.assertTrue(np.array_equal(res2, tmp))
 	def test_stateful_cli_noTEMD_stranded_01(self):
 		if not self.test_model: return
-		n, out_dir, lr, sl = '256', 'test_stateful_cli', '0.001', '10'
+		n, out_dir, lr, sl = '256', 'test_stateful_cli', '0.01', '10'
 		bsize, layers = '1', '1'
 		testArgs = ['teamRNN', \
 			'-R', self.fa, \
@@ -1117,7 +1117,7 @@ class TestReader(unittest.TestCase):
 			'-v', 'train', \
 			'-B', bsize, \
 			'-A', self.gff3, \
-			'-E', '250', \
+			'-E', '300', \
 			'-r', lr, \
 			'-l', layers, \
 			'-L', sl, \
@@ -1131,9 +1131,12 @@ class TestReader(unittest.TestCase):
 			teamRNN.main()
 		output = logStream.getvalue()
 		splitOut = output.split('\n')
+		#for line in splitOut:
+		#	if 'LOSS' in line: print line
 		self.assertTrue('Done' in splitOut[-2])
+		self.assertTrue('Output aggregator expecting stranded data' in output)
 		#for f in glob('test_cli/*'): print f
-		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_stranded_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_stranded_%sxlstm%s_stateful%i_learn%s_drop0.h5'%(out_dir, sl, layers, n, int(bsize)*2, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
 	def test_stateful_cli_noTEMD_stranded_02(self):
 		if not self.test_model: return
@@ -1173,7 +1176,7 @@ class TestReader(unittest.TestCase):
 			'-v', 'train', \
 			'-B', bsize, \
 			'-A', self.gff3, \
-			'-E', '200', \
+			'-E', '300', \
 			'-r', lr, \
 			'-l', layers, \
 			'--dense', '3', \
@@ -1191,7 +1194,7 @@ class TestReader(unittest.TestCase):
 		splitOut = output.split('\n')
 		self.assertTrue('Done' in splitOut[-2])
 		#for f in glob('test_cli/*'): print f
-		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_stranded_%sxlstm%s_stateful%s_learn%s_drop0.h5'%(out_dir, sl, layers, n, bsize, lr)))
+		self.assertTrue(os.path.exists('%s/plain_s%sx10_o66_stranded_%sxlstm%s_stateful%i_learn%s_drop0.h5'%(out_dir, sl, layers, n, int(bsize)*2, lr)))
 		self.assertTrue(os.path.exists('%s/config.pkl'%(out_dir)))
 		self.assertTrue(os.path.exists('%s/training_output_raw.gff3'%(out_dir)))
 		OF = open('%s/training_output_raw.gff3'%(out_dir),'r').readlines()

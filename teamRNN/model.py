@@ -37,7 +37,7 @@
 
 #!pip install hmmlearn &> /dev/null
 import numpy as np
-import os, random
+import os, random, shutil
 #import psutil
 from teamRNN.constants import tacc_nodes
 #from hmmlearn import hmm
@@ -310,7 +310,9 @@ class sleight_model:
 			if epoch:
 				epoch_file = self.save_file.replace(".h5","_e%i.h5"%(epoch))
 				self.model.save_weights(epoch_file)
-			self.model.save_weights(self.save_file)
+				shutil.copyfile(epoch_file, self.save_file)
+			else:
+				self.model.save_weights(self.save_file)
 			logger.debug("Saved model")
 	def _make_stateful_model(self):
 		self.test_model = self._build_graph(test=True)

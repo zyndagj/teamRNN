@@ -65,6 +65,7 @@ class output_aggregator:
 		self.i2f = few_gff3_i2f if self.few else gff3_i2f
 		self.f2i = few_gff3_f2i if self.few else gff3_f2i
 		self.stranded = stranded
+		if stranded: logger.debug("Output aggregator expecting stranded data")
 		with FastaFile(fasta_file) as FA:
 			self.chrom_dict = {c:FA.get_reference_length(c) for c in FA.references}
 		self.cur_chrom = ''
