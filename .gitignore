@@ -1,0 +1,6 @@
+*.sw?
+*.h5
+*.pkl
+*.pyc
+*.log
+.DS_store

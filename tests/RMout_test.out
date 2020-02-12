@@ -1,0 +1,20 @@
+    SW   perc perc perc  query     position in query              matching           repeat                 position in repeat
+ score   div. del. ins.  sequence  begin    end          (left)   repeat             class/family       begin   end    (left)     ID
+
+   282   13.2  0.0  8.1  1                1      107 (30427564) C ATREP18            DNA                 (1142)    649     561     1  
+    22   10.0  0.0  0.0  1             1066     1097 (30426574) + (C)n               Simple_repeat            1     32     (0)     2  
+    15   17.1  0.0  0.0  1             1155     1187 (30426484) + (TTTCTT)n          Simple_repeat            1     33     (0)     3  
+   231   10.9  0.0  0.0  1             4285     4330 (30423341) C MuDR-16_ALy        DNA/MULE-MuDR       (3083)    934     889     4  
+    16    9.3  0.0  0.0  1             5680     5702 (30421969) + (T)n               Simple_repeat            1     23     (0)     5  
+    36    0.0  0.0  0.0  1             8669     8699 (30418972) + (CT)n              Simple_repeat            1     31     (0)     6  
+    25   20.7  2.9  2.9  1             9961    10030 (30417641) + (AT)n              Simple_repeat            1     70     (0)     7  
+    20   28.7  1.4  2.8  1            10814    10885 (30416786) + (AT)n              Simple_repeat            1     71     (0)     8  
+   284   10.4  4.8  6.6  1            11915    11976 (30415695) + ATCopia24I         LTR/Copia             2737   2827  (1880)     9  
+    13    0.0  0.0  0.0  1            11985    12001 (30415670) + (GAA)n             Simple_repeat            1     17     (0)    10  
+    14   16.5  4.7  2.3  1            12875    12917 (30414754) + (TTCTTG)n          Simple_repeat            1     44     (0)    11  
+    13   21.8  0.0  2.6  1            12985    12997 (30414674) + (TGGTTTT)n         Simple_repeat            1     36     (0)    12  
+    17    8.9  0.0  0.0  1            12998    13021 (30414650) + (T)n               Simple_repeat            1     24     (0)    13  
+    18    4.5  0.0  0.0  1            13346    13368 (30414303) + (AG)n              Simple_repeat            1     23     (0)    14  
+    15   10.8  0.0  6.2  1            15436    15469 (30412202) + (ATT)n             Simple_repeat            1     32     (0)    15  
+    17    4.3  4.2  0.0  1            15872    15895 (30411776) + (TA)n              Simple_repeat            1     25     (0)    16  
+    17    0.0  0.0 12.9  1            16804    16838 (30410833) + (TTG)n             Simple_repeat            1     31     (0)    17  
